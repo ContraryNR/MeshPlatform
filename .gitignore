@@ -1,0 +1,12 @@
+# ===== 构建产物 / IDE =====
+build/
+build-*/
+.qtcreator/
+.idea/
+*.iml
+CMakeLists.txt.user
+target/
+
+# ===== 系统文件 =====
+Thumbs.db
+.DS_Store

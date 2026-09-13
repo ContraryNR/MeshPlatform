@@ -1,0 +1,589 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1200</width>
+    <height>600</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>QNetLink</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <layout class="QVBoxLayout" name="mainLayout">
+    <property name="spacing">
+     <number>6</number>
+    </property>
+    <property name="leftMargin">
+     <number>10</number>
+    </property>
+    <property name="topMargin">
+     <number>10</number>
+    </property>
+    <property name="rightMargin">
+     <number>10</number>
+    </property>
+    <property name="bottomMargin">
+     <number>10</number>
+    </property>
+    <item>
+     <widget class="QGroupBox" name="hostInfoGroup">
+      <property name="title">
+       <string>本机信息</string>
+      </property>
+      <layout class="QHBoxLayout" name="hostInfoLayout">
+       <item>
+        <widget class="QLabel" name="hostNameLabel">
+         <property name="text">
+          <string>主机名</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="hostNameDisplay">
+         <property name="text">
+          <string>(等待设置)</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="modeLabel">
+         <property name="text">
+          <string>模式</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="modeDisplay">
+         <property name="text">
+          <string>(等待设置)</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item>
+     <layout class="QHBoxLayout" name="configLayout">
+      <item>
+       <widget class="QGroupBox" name="coordinatorGroup">
+        <property name="title">
+         <string>协调者配置</string>
+        </property>
+        <layout class="QHBoxLayout" name="coordConfigLayout">
+         <item>
+          <widget class="QLabel" name="listenIPLabel">
+           <property name="text">
+            <string>监听地址</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QComboBox" name="listenIP"/>
+         </item>
+         <item>
+          <widget class="QLabel" name="listenPortLabel">
+           <property name="text">
+            <string>端口</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QSpinBox" name="listenPort">
+           <property name="minimum">
+            <number>1</number>
+           </property>
+           <property name="maximum">
+            <number>65535</number>
+           </property>
+           <property name="value">
+            <number>2345</number>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <widget class="QGroupBox" name="peerGroup">
+        <property name="title">
+         <string>节点配置</string>
+        </property>
+        <layout class="QHBoxLayout" name="coordAddrLayout">
+         <item>
+          <widget class="QLabel" name="coordIPLabel">
+           <property name="text">
+            <string>协调者地址</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLineEdit" name="coordIP">
+           <property name="placeholderText">
+            <string>协调者IP</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="coordPortLabel">
+           <property name="text">
+            <string>端口</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QSpinBox" name="coordPort">
+           <property name="minimum">
+            <number>1</number>
+           </property>
+           <property name="maximum">
+            <number>65535</number>
+           </property>
+           <property name="value">
+            <number>2345</number>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <widget class="QGroupBox" name="vnetGroup">
+        <property name="title">
+         <string>虚拟网卡</string>
+        </property>
+        <layout class="QHBoxLayout" name="vnetLayout">
+         <item>
+          <widget class="QLabel" name="subnetLabel">
+           <property name="text">
+            <string>网段前缀</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLineEdit" name="subnetPrefix">
+           <property name="text">
+            <string>10.0.0</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="networkLenLabel">
+           <property name="text">
+            <string>网络位</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QSpinBox" name="networkLen">
+           <property name="minimum">
+            <number>1</number>
+           </property>
+           <property name="maximum">
+            <number>31</number>
+           </property>
+           <property name="value">
+            <number>8</number>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="localIPLabel">
+           <property name="text">
+            <string>本机虚拟地址</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="localIP">
+           <property name="text">
+            <string>(自动分配)</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+     </layout>
+    </item>
+    <item>
+     <layout class="QHBoxLayout" name="buttonLayout">
+      <item>
+       <widget class="QPushButton" name="btnStart">
+        <property name="text">
+         <string>开启组网</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btnShut">
+        <property name="text">
+         <string>停止组网</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btnSettings">
+        <property name="text">
+         <string>设置</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btnVoiceChat">
+        <property name="text">
+         <string>开始语音通话</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btnVideoChat">
+        <property name="text">
+         <string>开始视频通话</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btnLoadJson">
+        <property name="text">
+         <string>加载json文件</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
+    <item>
+     <layout class="QHBoxLayout" name="mainContentLayout">
+      <property name="spacing">
+       <number>10</number>
+      </property>
+      <item>
+       <widget class="QGroupBox" name="peerTableGroup">
+        <property name="title">
+         <string>已连接节点</string>
+        </property>
+        <layout class="QVBoxLayout" name="peerTableLayout">
+         <item>
+          <widget class="QTableWidget" name="peerTable">
+           <property name="minimumSize">
+            <size>
+             <width>250</width>
+             <height>0</height>
+            </size>
+           </property>
+           <property name="editTriggers">
+            <set>QAbstractItemView::EditTrigger::NoEditTriggers</set>
+           </property>
+           <property name="alternatingRowColors">
+            <bool>true</bool>
+           </property>
+           <property name="selectionBehavior">
+            <enum>QAbstractItemView::SelectionBehavior::SelectRows</enum>
+           </property>
+           <column>
+            <property name="text">
+             <string>序号</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>主机名</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>虚拟地址</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>状态</string>
+            </property>
+           </column>
+           <column>
+            <property name="text">
+             <string>连接数</string>
+            </property>
+           </column>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <layout class="QVBoxLayout" name="chatLayout">
+        <property name="spacing">
+         <number>0</number>
+        </property>
+        <item>
+         <widget class="QGroupBox" name="chatGroup">
+          <property name="title">
+           <string>聊天</string>
+          </property>
+          <layout class="QVBoxLayout" name="chatBoxLayout">
+           <property name="spacing">
+            <number>0</number>
+           </property>
+           <item>
+            <widget class="QLabel" name="chatTitle">
+             <property name="text">
+              <string>未选择聊天对象</string>
+             </property>
+             <property name="styleSheet">
+              <string notr="true">font-weight: bold; color: #333;</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QListWidget" name="chatListWidget">
+             <property name="minimumSize">
+              <size>
+               <width>400</width>
+               <height>250</height>
+              </size>
+             </property>
+             <property name="frameShape">
+              <enum>QFrame::NoFrame</enum>
+             </property>
+             <property name="horizontalScrollBarPolicy">
+              <enum>Qt::ScrollBarAlwaysOff</enum>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="sendLayout">
+          <property name="spacing">
+           <number>5</number>
+          </property>
+          <item>
+           <widget class="QPushButton" name="btnAttach">
+            <property name="text">
+             <string>📎</string>
+            </property>
+            <property name="fixedWidth">
+             <number>40</number>
+            </property>
+            <property name="toolTip">
+             <string>发送文件</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="sendingMsg">
+            <property name="placeholderText">
+             <string>输入消息...</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btnSend">
+            <property name="text">
+             <string>单播发送</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btnBroadcast">
+            <property name="text">
+             <string>广播发送</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QGroupBox" name="fileTransferGroup">
+        <property name="title">
+         <string>文件传输</string>
+        </property>
+        <layout class="QVBoxLayout" name="fileTransferLayout">
+         <item>
+          <widget class="QTabWidget" name="fileTransferTabWidget">
+           <property name="currentIndex">
+            <number>0</number>
+           </property>
+           <widget class="QWidget" name="sendTab">
+            <attribute name="title">
+             <string>发送</string>
+            </attribute>
+            <layout class="QVBoxLayout" name="sendTabLayout">
+             <item>
+              <widget class="QTableWidget" name="fileTransferTable">
+               <property name="minimumSize">
+                <size>
+                 <width>300</width>
+                 <height>0</height>
+                </size>
+               </property>
+               <property name="editTriggers">
+                <set>QAbstractItemView::EditTrigger::NoEditTriggers</set>
+               </property>
+               <property name="alternatingRowColors">
+                <bool>true</bool>
+               </property>
+               <property name="selectionBehavior">
+                <enum>QAbstractItemView::SelectionBehavior::SelectRows</enum>
+               </property>
+               <column>
+                <property name="text">
+                 <string>文件名</string>
+                </property>
+               </column>
+               <column>
+                <property name="text">
+                 <string>大小</string>
+                </property>
+               </column>
+               <column>
+                <property name="text">
+                 <string>状态</string>
+                </property>
+               </column>
+               <column>
+                <property name="text">
+                 <string>创建时间</string>
+                </property>
+               </column>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+           <widget class="QWidget" name="receiveTab">
+            <attribute name="title">
+             <string>接收</string>
+            </attribute>
+            <layout class="QVBoxLayout" name="receiveTabLayout">
+             <item>
+              <widget class="QTableWidget" name="fileReceiveTable">
+               <property name="minimumSize">
+                <size>
+                 <width>300</width>
+                 <height>0</height>
+                </size>
+               </property>
+               <property name="editTriggers">
+                <set>QAbstractItemView::EditTrigger::NoEditTriggers</set>
+               </property>
+               <property name="alternatingRowColors">
+                <bool>true</bool>
+               </property>
+               <property name="selectionBehavior">
+                <enum>QAbstractItemView::SelectionBehavior::SelectRows</enum>
+               </property>
+               <column>
+                <property name="text">
+                 <string>文件名</string>
+                </property>
+               </column>
+               <column>
+                <property name="text">
+                 <string>来源</string>
+                </property>
+               </column>
+               <column>
+                <property name="text">
+                 <string>进度</string>
+                </property>
+               </column>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+     </layout>
+    </item>
+    <item>
+     <layout class="QHBoxLayout" name="bottomLayout">
+      <item>
+       <widget class="QGroupBox" name="trafficGroup">
+        <property name="title">
+         <string>流量</string>
+        </property>
+        <layout class="QHBoxLayout" name="trafficLayout">
+         <item>
+          <widget class="QLabel" name="internalSpeed">
+           <property name="text">
+            <string>入站: --</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="externalSpeed">
+           <property name="text">
+            <string>出站: --</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="pendingStackSize">
+           <property name="text">
+            <string>待发积压: --</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="clearLayout">
+        <item>
+         <widget class="QPushButton" name="cleanState">
+          <property name="text">
+           <string>清空状态</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="cleanMessage">
+          <property name="text">
+           <string>清空聊天</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QPlainTextEdit" name="stateMsg">
+        <property name="minimumSize">
+         <size>
+          <width>300</width>
+          <height>60</height>
+         </size>
+        </property>
+        <property name="readOnly">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
+   </layout>
+  </widget>
+  <widget class="QMenuBar" name="menubar">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>1200</width>
+     <height>21</height>
+    </rect>
+   </property>
+  </widget>
+  <widget class="QStatusBar" name="statusbar"/>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
