@@ -2,11 +2,6 @@
 #include "./ui_mainwindow.h"
 #include "startupdialog.h"
 
-netConfig MainWindow::getCoordinateNetConfigFromUI()
-{
-    return netConfig(ui->listenIP->currentText(), ui->listenPort->value());
-}
-
 netConfig MainWindow::getPeerNetConfigFromUI()
 {
     return netConfig(ui->coordIP->text(), ui->coordPort->value());
@@ -18,30 +13,16 @@ void MainWindow::initialUI()
     if(dlg.exec() != QDialog::Accepted)
     {
         localHostName = QString("Host_%1").arg(QRandomGenerator::global()->bounded(1000, 9999));
-        isCoordinator = true;
         onlineMode = true;
     }
     else
     {
         localHostName = dlg.getHostName();
-        isCoordinator = dlg.getIsCoordinator();
         onlineMode = dlg.getOnlineMode();
-
     }
     ui->hostNameDisplay->setText(localHostName);
-    ui->modeDisplay->setText(isCoordinator ? "Coordinator" : "Peer");
-    ui->coordinatorGroup->setVisible(isCoordinator);
-    ui->peerGroup->setVisible(!isCoordinator);
-    if(isCoordinator)
-    {
-        for(const QHostAddress& addr : QNetworkInterface::allAddresses())
-            if(addr.protocol() == QAbstractSocket::IPv4Protocol)
-                ui->listenIP->addItem(addr.toString());
-        int index = ui->listenIP->findText("127.0.0.1");
-        ui->listenIP->setCurrentIndex(index >= 0 ? index : 0);
-    }
-    else
-        ui->coordIP->setText("127.0.0.1");//限目前测试用
+    ui->modeDisplay->setText(onlineMode ? "Online" : "Offline");
+    ui->coordIP->setText("127.0.0.1");//限目前测试用
     for(QPushButton* button : findChildren<QPushButton*>())
         button->setEnabled(false);
     ui->btnStart->setEnabled(true);

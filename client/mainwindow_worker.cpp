@@ -12,50 +12,27 @@ MainWindow::MainWindow(QWidget *parent)
 {
     ui->setupUi(this);
     initialUI();
-    if(isCoordinator)
-        localHostNum=1;
     initialSignaling();
     initialTun();
     connect(ui->btnStart, &QPushButton::clicked, this, [this](){
         ui->btnStart->setEnabled(false);
         startTime=QDateTime::currentMSecsSinceEpoch();
-        if(isCoordinator)
+        if(onlineMode)
         {
-            if(onlineMode)
+            currentNetConf = getPeerNetConfigFromUI();
+            if(!currentNetConf.isValid())
             {
-                currentNetConf = getCoordinateNetConfigFromUI();
-                if(!currentNetConf.isValid())
-                {
-                    ui->stateMsg->appendPlainText("配置信息不合法");
-                    ui->btnStart->setEnabled(true);
-                    return;
-                }
-                QMetaObject::invokeMethod(serverNetWorker, "startTcpServer", Qt::QueuedConnection,
-                                          Q_ARG(const QString&, currentNetConf.ip),
-                                          Q_ARG(int, currentNetConf.port));
-                ui->stateMsg->appendPlainText(QString("协调者监听在 %1:%2").arg(currentNetConf.ip).arg(currentNetConf.port));
+                ui->stateMsg->appendPlainText("配置信息不合法");
+                ui->btnStart->setEnabled(true);
+                return;
             }
-            getTun();
+            QMetaObject::invokeMethod(clientNetWorker, "startWsClient", Qt::QueuedConnection,
+                                      Q_ARG(const QString&, currentNetConf.ip),
+                                      Q_ARG(int, currentNetConf.port));
+            ui->stateMsg->appendPlainText(QString("正在连接信令服务器 %1:%2").arg(currentNetConf.ip).arg(currentNetConf.port));
         }
         else
-        {
-            if(onlineMode)
-            {
-                currentNetConf = getPeerNetConfigFromUI();
-                if(!currentNetConf.isValid())
-                {
-                    ui->stateMsg->appendPlainText("配置信息不合法");
-                    ui->btnStart->setEnabled(true);
-                    return;
-                }
-                QMetaObject::invokeMethod(clientNetWorker, "startTcpClient", Qt::QueuedConnection,
-                                          Q_ARG(const QString&, currentNetConf.ip),
-                                          Q_ARG(int, currentNetConf.port));
-                ui->stateMsg->appendPlainText(QString("正在连接协调者 %1:%2").arg(currentNetConf.ip).arg(currentNetConf.port));
-            }
-            else
-                QMetaObject::invokeMethod(peerJsonWorker,"onReadySendHostName",Qt::QueuedConnection);
-        }
+            QMetaObject::invokeMethod(peerJsonWorker,"onReadySendHostName",Qt::QueuedConnection);
         ui->btnShut->setEnabled(true);
         ui->btnSettings->setEnabled(true);
         ui->btnLoadJson->setEnabled(!onlineMode);//仅限离线模式使用(虽然在线模式导入也是合法的,均为共享jsonWorker及下游链路但不建议混用)
@@ -107,29 +84,8 @@ void MainWindow::initialSignaling()
             ui->stateMsg->appendPlainText(QString("json文件加载失败: %1, 错误: %2").arg(filePath).arg(errorMsg));
         });
     }
-    if(isCoordinator)
     {
-        (serverNetWorker = new coornetworker(localHostName,localHostNum))->moveToThread(trd[NET]=new QThread);
-        (coorJsonWorker = new coorjsonworker(localHostName, localHostNum, &serverNetWorker->hostSocketMap, onlineMode,ipRoute))->moveToThread(trd[JW]=new QThread);
-        connect(serverNetWorker, &coornetworker::onJsonMsg, coorJsonWorker, &coorjsonworker::onExternalMsg);
-        connect(coorJsonWorker, &coorjsonworker::goCreateOfferER, dcManager, &dcmanager::createOfferER);
-        connect(coorJsonWorker, &coorjsonworker::goCreateLocalAnswerER, dcManager, &dcmanager::createAnswerER);
-        connect(coorJsonWorker, &coorjsonworker::goSetAnswer, dcManager, &dcmanager::setAnswer);
-        connect(coorJsonWorker, &coorjsonworker::goSetCandidate, dcManager, &dcmanager::setCandidate);
-        connect(coorJsonWorker, &coorjsonworker::sendToNetWorker, serverNetWorker, &coornetworker::sendMsg);
-        connect(dcManager, &dcmanager::transferWorkerMsg, coorJsonWorker, &coorjsonworker::onInternalMsg);
-        if(!onlineMode)
-        {
-            connect(jsonLoader, &jsonloader::jsonObjLoaded, coorJsonWorker,
-                    std::bind(&coorjsonworker::onExternalMsg, coorJsonWorker, std::placeholders::_1, nullptr));
-            connect(coorJsonWorker, &coorjsonworker::offlineFileSaved, this, [this](const QString& msg){
-                ui->stateMsg->appendPlainText(msg);
-            });
-        }
-    }
-    else
-    {
-        (clientNetWorker = new peernetworker)->moveToThread(trd[NET]=new QThread);
+        (clientNetWorker = new wssignalingworker)->moveToThread(trd[NET]=new QThread);
         (peerJsonWorker=new peerjsonworker(localHostName, localHostNum, dcManager->nameRoute, onlineMode,ipRoute))->moveToThread(trd[JW]=new QThread);
         connect(peerJsonWorker, &peerjsonworker::goCreateOfferER, dcManager, &dcmanager::createOfferER);
         connect(peerJsonWorker, &peerjsonworker::goCreateAnswerER, dcManager, &dcmanager::createAnswerER);
@@ -144,9 +100,12 @@ void MainWindow::initialSignaling()
             getTun();
         });
         connect(dcManager, &dcmanager::transferWorkerMsg, peerJsonWorker, &peerjsonworker::onInternalMsg);
-        connect(peerJsonWorker, &peerjsonworker::sendToNetWorker, clientNetWorker, &peernetworker::sendMsg);
-        connect(clientNetWorker, &peernetworker::readySendHostName, peerJsonWorker, &peerjsonworker::onReadySendHostName);
-        connect(clientNetWorker, &peernetworker::onJsonMsg, peerJsonWorker, &peerjsonworker::onExternalMsg);
+        connect(peerJsonWorker, &peerjsonworker::sendToNetWorker, clientNetWorker, &wssignalingworker::sendMsg);
+        connect(clientNetWorker, &wssignalingworker::readySendHostName, peerJsonWorker, &peerjsonworker::onReadySendHostName);
+        connect(clientNetWorker, &wssignalingworker::onJsonMsg, peerJsonWorker, &peerjsonworker::onExternalMsg);
+        connect(clientNetWorker, &wssignalingworker::wsError, this, [this](const QString& msg){
+            ui->stateMsg->appendPlainText(msg);
+        });
         if(!onlineMode)
         {
             connect(jsonLoader, &jsonloader::jsonObjLoaded, peerJsonWorker, &peerjsonworker::onExternalMsg);
@@ -156,13 +115,7 @@ void MainWindow::initialSignaling()
         }
     }
     if(!onlineMode)
-    {
-        if(isCoordinator)
-            connect(dcManager,&dcmanager::onSignalingBackMsg,coorJsonWorker,
-                std::bind(&coorjsonworker::onExternalMsg, coorJsonWorker, std::placeholders::_1, nullptr));
-        else
-            connect(dcManager,&dcmanager::onSignalingBackMsg,peerJsonWorker,&peerjsonworker::onExternalMsg);
-    }
+        connect(dcManager,&dcmanager::onSignalingBackMsg,peerJsonWorker,&peerjsonworker::onExternalMsg);
     trd[NET]->start();
     trd[JW]->start();
     //注意区分jsonWorker和jsonLoader
@@ -189,7 +142,7 @@ void MainWindow::getTun()
     QString adapterIP = subnetPrefix + "." + QString::number(hostNum);
     int networkLen = ui->networkLen->value();
     adapter = tunManager->initialAdapter(adapterIP, networkLen,
-                                         isCoordinator ? L"QNetLink_Coordinator" : L"QNetLink_Peer");
+                                         L"QNetLink_Peer");
     if(!adapter)
     {
         ui->stateMsg->appendPlainText("虚拟网卡创建失败（请以管理员身份运行）");
@@ -265,10 +218,7 @@ void MainWindow::cleanUp(bool isShutDown)
         else
             QMetaObject::invokeMethod(dcManager, "stopTimer", Qt::QueuedConnection);
     }
-    if(isCoordinator)
-        QMetaObject::invokeMethod(serverNetWorker,"pauseTcpServer",Qt::QueuedConnection);
-    else
-        QMetaObject::invokeMethod(clientNetWorker,"pauseTcpClient",Qt::QueuedConnection);
+    QMetaObject::invokeMethod(clientNetWorker,"pauseWsClient",Qt::QueuedConnection);
     QTimer* waitTimer = new QTimer(this);
     waitTimer->setInterval(500);
     if(isShutDown)
@@ -293,7 +243,6 @@ void MainWindow::cleanUp(bool isShutDown)
                 if(tunInWorker) { delete tunInWorker; tunInWorker = nullptr; }
                 if(tunOutWorker) { delete tunOutWorker; tunOutWorker = nullptr; }
                 if(dcManager) { delete dcManager; dcManager = nullptr; }
-                if(serverNetWorker) { delete serverNetWorker; serverNetWorker = nullptr; }
                 if(clientNetWorker){delete clientNetWorker;clientNetWorker=nullptr;}
                 if(jsonLoader){delete(jsonLoader);jsonLoader=nullptr;}
                 delete mutex; mutex = nullptr;
@@ -303,8 +252,7 @@ void MainWindow::cleanUp(bool isShutDown)
     }
     else
     {
-        if(!isCoordinator)
-            localHostNum=0;
+        localHostNum=0;
         connect(waitTimer,&QTimer::timeout,this,[this,waitTimer](){
             if(
                 (!dcManager||dcManager->ipRoute.isEmpty())&&

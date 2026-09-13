@@ -12,7 +12,7 @@ if(MINGW)
 endif()
 
 #注册Qt原生类
-find_package(Qt6 REQUIRED COMPONENTS Widgets Network Multimedia)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Network Multimedia WebSockets)
 
 #配置OpenSSL临时环境变量
 set(OPENSSL_ROOT_DIR "E:/Code/QtCode/Dependency/openssl")
@@ -70,7 +70,7 @@ qt_add_executable(Mesh
     tunloader.h
     tunmanager.h
     dcmanager.h
-    peernetworker.h
+    wssignalingworker.h
     tuninworker.h
     tunoutworker.h
     filesender.h
@@ -97,6 +97,7 @@ target_link_libraries(Mesh
         Qt6::Widgets
         Qt6::Network
         Qt6::Multimedia
+        Qt6::WebSockets
         ${OpenCV_LIBS}
         datachannel
         opus

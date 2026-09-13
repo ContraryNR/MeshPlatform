@@ -70,45 +70,6 @@
     <item>
      <layout class="QHBoxLayout" name="configLayout">
       <item>
-       <widget class="QGroupBox" name="coordinatorGroup">
-        <property name="title">
-         <string>协调者配置</string>
-        </property>
-        <layout class="QHBoxLayout" name="coordConfigLayout">
-         <item>
-          <widget class="QLabel" name="listenIPLabel">
-           <property name="text">
-            <string>监听地址</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QComboBox" name="listenIP"/>
-         </item>
-         <item>
-          <widget class="QLabel" name="listenPortLabel">
-           <property name="text">
-            <string>端口</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QSpinBox" name="listenPort">
-           <property name="minimum">
-            <number>1</number>
-           </property>
-           <property name="maximum">
-            <number>65535</number>
-           </property>
-           <property name="value">
-            <number>2345</number>
-           </property>
-          </widget>
-         </item>
-        </layout>
-       </widget>
-      </item>
-      <item>
        <widget class="QGroupBox" name="peerGroup">
         <property name="title">
          <string>节点配置</string>
@@ -117,14 +78,14 @@
          <item>
           <widget class="QLabel" name="coordIPLabel">
            <property name="text">
-            <string>协调者地址</string>
+            <string>信令服务器地址</string>
            </property>
           </widget>
          </item>
          <item>
           <widget class="QLineEdit" name="coordIP">
            <property name="placeholderText">
-            <string>协调者IP</string>
+            <string>服务器IP</string>
            </property>
           </widget>
          </item>
@@ -144,7 +105,7 @@
             <number>65535</number>
            </property>
            <property name="value">
-            <number>2345</number>
+            <number>8080</number>
            </property>
           </widget>
          </item>

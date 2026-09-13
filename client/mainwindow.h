@@ -24,8 +24,7 @@
 #include <QTime>
 #include <QJsonObject>
 #include <QJsonDocument>
-#include "peernetworker.h"
-#include "coornetworker.h"
+#include "wssignalingworker.h"
 #include "dcmanager.h"
 #include "tunloader.h"
 #include "tunmanager.h"
@@ -35,7 +34,6 @@
 #include "filesender.h"
 #include "videochatwindow.h"
 #include "audiochatwindow.h"
-#include "coorjsonworker.h"
 #include "peerjsonworker.h"
 #include "jsonloader.h"
 #include "videoencoder.h"
@@ -72,7 +70,6 @@ class MainWindow : public QMainWindow
     Q_OBJECT
 
 public://Flags
-    bool isCoordinator;
     bool onlineMode;
     bool isClosing=false;
     int currentPeerHostNum=0;
@@ -80,15 +77,13 @@ public://Flags
     uint64_t startTime;
     netConfig currentNetConf;
     QString localHostName;
-    int localHostNum;
+    int localHostNum{0};//离线模式下从未被分配,兜底为0
 public://MainThreadWorker
     tunloader* tunLoader{NULL};
     tunmanager* tunManager{NULL};
     jsonloader* jsonLoader{NULL};
 public://QThreadWorker
-    coornetworker* serverNetWorker{NULL};
-    peernetworker* clientNetWorker{NULL};
-    coorjsonworker* coorJsonWorker{NULL};
+    wssignalingworker* clientNetWorker{NULL};
     peerjsonworker* peerJsonWorker{NULL};
     dcmanager* dcManager{NULL};
     tuninworker* tunInWorker{NULL};
@@ -125,7 +120,6 @@ public://Dialogs
     bool requestDialog(const QString&,const QString&,const QString&,const QString&);
     bool requestDialogRich(const QString& title,const QString& question,const QString& paramsText,
                            const QString& btnText1,const QString& btnText0);
-    netConfig getCoordinateNetConfigFromUI();
     netConfig getPeerNetConfigFromUI();
 
 public://Init & Shutdown

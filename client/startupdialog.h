@@ -17,8 +17,6 @@ class StartupDialog : public QDialog
     Q_OBJECT
 public:
     QLineEdit* hostNameEdit;
-    QRadioButton* radioCoordinator;
-    QRadioButton* radioPeer;
     QRadioButton* radioOnline;
     QRadioButton* radioOffline;
     QPushButton* btnConfirm;
@@ -28,7 +26,7 @@ public:
         : QDialog(parent)
     {
         setWindowTitle("启动配置");
-        setMinimumSize(350, 280);
+        setMinimumSize(350, 220);
 
         QVBoxLayout* mainLayout = new QVBoxLayout(this);
 
@@ -40,27 +38,17 @@ public:
         nameLayout->addRow("名称:", hostNameEdit);
         mainLayout->addWidget(nameGroup);
 
-        //2.角色选择
-        QGroupBox* roleGroup = new QGroupBox("运行模式", this);
-        QHBoxLayout* roleLayout = new QHBoxLayout(roleGroup);
-        radioCoordinator = new QRadioButton("Coordinator", this);
-        radioPeer = new QRadioButton("Peer", this);
-        radioCoordinator->setChecked(true);
-        roleLayout->addWidget(radioCoordinator);
-        roleLayout->addWidget(radioPeer);
-        mainLayout->addWidget(roleGroup);
-
-        //3.在线/离线模式
+        //2.在线/离线模式
         QGroupBox* modeGroup = new QGroupBox("网络模式", this);
         QHBoxLayout* modeLayout = new QHBoxLayout(modeGroup);
-        radioOnline = new QRadioButton("在线 (TCP Signaling)", this);
+        radioOnline = new QRadioButton("在线 (WebSocket Signaling)", this);
         radioOffline = new QRadioButton("离线 (JSON文件交换)", this);
         radioOnline->setChecked(true);
         modeLayout->addWidget(radioOnline);
         modeLayout->addWidget(radioOffline);
         mainLayout->addWidget(modeGroup);
 
-        //4.确认/取消按钮
+        //3.确认/取消按钮
         QHBoxLayout* btnLayout = new QHBoxLayout();
         btnLayout->addStretch();
         btnConfirm = new QPushButton("确认", this);
@@ -82,7 +70,6 @@ public:
         return name;
     }
 
-    bool getIsCoordinator() const { return radioCoordinator->isChecked(); }
     bool getOnlineMode() const { return radioOnline->isChecked(); }
 };
 
