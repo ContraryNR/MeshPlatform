@@ -16,9 +16,8 @@ public:
 public slots:
     void onInternalMsg(const QJsonObject& msg)
     {
-        QByteArray byteArr=QJsonDocument(getFinalJson(msg)).toJson(QJsonDocument::Compact);
         if(onlineMode)
-            emit sendToNetWorker(byteArr);//WebSocket帧自带边界,无需TCP流协议的'\n'切帧符
+            emit sendToNetWorker(getFinalJson(msg));//结构化JSON贯穿信号链,序列化只在各IO边界发生
         else
         {
             if(msg["index"].toInt()!=0)
@@ -29,7 +28,7 @@ public slots:
                 QString targetName=(targetHostNum==1)?QString("Coordinator"):nameRoute[targetHostNum];
                 QString type=msg["type"].toString();
                 QString mType=(type=="sdp")?msg["sdpType"].toString():type;
-                saveOrientedFile(targetName,byteArr,mType);
+                saveOrientedFile(targetName,QJsonDocument(getFinalJson(msg)).toJson(QJsonDocument::Compact),mType);//文件IO边界
             }
         }
     }
@@ -37,11 +36,10 @@ public slots:
     {
         QJsonObject hostNameJson;
         hostNameJson["type"]="hostname";
-        QByteArray byteArr=QJsonDocument(getFinalJson(hostNameJson)).toJson(QJsonDocument::Compact);
         if(onlineMode)
-            emit sendToNetWorker(byteArr);//WebSocket帧自带边界,无需TCP流协议的'\n'切帧符
+            emit sendToNetWorker(getFinalJson(hostNameJson));
         else
-            saveOrientedFile("Coordinator",byteArr,"hostname");
+            saveOrientedFile("Coordinator",QJsonDocument(getFinalJson(hostNameJson)).toJson(QJsonDocument::Compact),"hostname");//文件IO边界
     }
     void onExternalMsg(const QJsonObject& msg)
     {
@@ -69,7 +67,7 @@ public slots:
             emit goSetCandidate(msg["candidateItem"].toString(),msg["candidateMid"].toString(),msg["source"].toInt(),msg["index"].toInt());
     }
 signals:
-    void sendToNetWorker(const QByteArray&);
+    void sendToNetWorker(const QJsonObject&);
     void goCreateOfferER(const QString& peerHostName,int peerHostNum);
     void goCreateAnswerER(const QString& peerHostName,int peerHostNum,const QString& offer,int index);
     void goSetAnswer(const QString& sdp,int peerHostNum,int);

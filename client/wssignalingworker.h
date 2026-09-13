@@ -56,10 +56,10 @@ public slots:
         if(wsSocket)
             wsSocket->close();//close后由disconnected回调完成deleteLater
     }
-    void sendMsg(const QByteArray& msg)
+    void sendMsg(const QJsonObject& msg)
     {
         if(wsSocket&&wsSocket->isValid())
-            wsSocket->sendTextMessage(QString::fromUtf8(msg));
+            wsSocket->sendTextMessage(QString::fromUtf8(QJsonDocument(msg).toJson(QJsonDocument::Compact)));//唯一的上行序列化边界
     }
 
 signals:
