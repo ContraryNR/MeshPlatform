@@ -11,7 +11,7 @@
 //对照关系:
 //  startTcpClient(ip,port) => startWsClient(ip,port)   内部拼接 ws://ip:port/ws
 //  readyRead+手动'\n'切帧  => textMessageReceived       WebSocket帧自带边界,一帧即一条完整JSON
-//  write(json+'\n')        => sendTextMessage(json)    sendMsg 内剥掉遗留的'\n'
+//  write(json+'\n')        => sendTextMessage(json)    帧边界由WebSocket协议承载,上游不再附加'\n'
 class wssignalingworker : public QObject
 {
     Q_OBJECT
@@ -59,12 +59,7 @@ public slots:
     void sendMsg(const QByteArray& msg)
     {
         if(wsSocket&&wsSocket->isValid())
-        {
-            QByteArray oneMsg=msg;
-            if(oneMsg.endsWith('\n'))//剥离TCP流协议遗留的帧尾
-                oneMsg.chop(1);
-            wsSocket->sendTextMessage(QString::fromUtf8(oneMsg));
-        }
+            wsSocket->sendTextMessage(QString::fromUtf8(msg));
     }
 
 signals:

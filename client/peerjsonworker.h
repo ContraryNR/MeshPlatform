@@ -18,7 +18,7 @@ public slots:
     {
         QByteArray byteArr=QJsonDocument(getFinalJson(msg)).toJson(QJsonDocument::Compact);
         if(onlineMode)
-            emit sendToNetWorker(byteArr+'\n');
+            emit sendToNetWorker(byteArr);//WebSocket帧自带边界,无需TCP流协议的'\n'切帧符
         else
         {
             if(msg["index"].toInt()!=0)
@@ -39,7 +39,7 @@ public slots:
         hostNameJson["type"]="hostname";
         QByteArray byteArr=QJsonDocument(getFinalJson(hostNameJson)).toJson(QJsonDocument::Compact);
         if(onlineMode)
-            emit sendToNetWorker(byteArr+'\n');
+            emit sendToNetWorker(byteArr);//WebSocket帧自带边界,无需TCP流协议的'\n'切帧符
         else
             saveOrientedFile("Coordinator",byteArr,"hostname");
     }
