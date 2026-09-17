@@ -1,13 +1,19 @@
 'use strict';
 // MeshPlatform 管理页 —— 订阅 SSE 拓扑推送并渲染手写 SVG 拓扑图(零第三方依赖)
 // 数据形态: {ts, nodes:[{hostNum,hostName}],
-//            edges:[{a,b,channels:[{ch,rtt,up,down,buffered,netPath,iceState,candLocal,candRemote}]}]}
-// 数据精确到 channel:服务端不做跨通道汇总(边级的 RTT/速率/路径都没有),页面逐通道展示。
+//   edges:[{a,b,channels:[{ch,
+//      a:{rtt,up,down,buffered,netPath,iceState,candLocal,candRemote},
+//      b:{同左}}]}]}
+// 服务端只归档与转发,不合并两端观测:同一通道两端各自的读数原样并列(up/down 是该端自己的方向读数,
+// rtt 是该端自己测的,buffered 是该端自己的发送队列)。因此页面按"选中节点"的视角展示:
+// 选中谁就只看它作为上报方的那一份(节点详情与质量表格都跟随);某端对象不存在 = 该端没报该通道。
+// 唯一不跟随选中的是拓扑那条线(一条边只有一条线,固定取 hostNum 较小端,图例里已写明)。
 // 裸边(客户端"仅连接数量"模式)只有 a/b,无 channels,拓扑灰显、不进质量表格。
 
 const svg = document.getElementById('topo');
 const detailBody = document.getElementById('detail-body');
 const tableBody = document.querySelector('#edge-table tbody');
+const tableCaptionEl = document.getElementById('table-caption');
 const emptyHint = document.getElementById('empty-hint');
 const nodeCountEl = document.getElementById('node-count');
 const updateTimeEl = document.getElementById('update-time');
@@ -54,12 +60,10 @@ function renderTopo() {
   for (const edge of topo.edges) {
     const pa = pos[edge.a], pb = pos[edge.b];
     if (!pa || !pb) continue;
-    // 一条线只能有一个颜色:取代表通道的 RTT 上色(主通道优先,否则通道号最小的那条)。
-    // 这只是页面为"一条线"选的渲染代表,数据本身仍是分通道的,服务端不参与这个取舍。
-    // (2026-09-17 复查"跨通道汇总是否删净"时确认:拓扑图保持"一条边一条线"是刻意保留的渲染选择,
-    //  分通道数据在质量表格与节点详情里逐条可查 —— 别当漏删改成多条线。)
-    const rep = repChannel(edge);
-    const rtt = rep ? rep.rtt : null;
+    // 一条线只能有一个颜色:固定取 hostNum 较小端(a)视角的代表通道 RTT(a 端此边没数据时退到 b 端)。
+    // 它只是线上那个数字与颜色,不改变任何数据 —— 分端分通道的数据在表格与详情里逐条可查。
+    const v = lineView(edge);
+    const rtt = v ? v.side.rtt : null;
     const color = rttColor(rtt);
     svg.appendChild(el('line', {
       x1: pa.x, y1: pa.y, x2: pb.x, y2: pb.y,
@@ -129,12 +133,11 @@ function renderDetail() {
     return;
   }
   for (const e of related) {
-    const outbound = e.a === selected; // 选中端是否为 a:决定 ↑/↓ 朝向
-    const peerNum = outbound ? e.b : e.a;
+    const mySide = e.a === selected ? 'a' : 'b';// 选中端在这条边上的那一份观测
+    const peerNum = e.a === selected ? e.b : e.a;
     const peer = topo.nodes.find(n => n.hostNum === peerNum);
     const card = el2('div', { class: 'edge-card' });
     card.appendChild(kv('对端', (peer ? peer.hostName : '未知') + ' (#' + peerNum + ')'));
-    // 服务端只给精确到通道的数据,不再有"整条边"的汇总项 —— 逐通道展示
     const chs = e.channels || [];
     if (!chs.length) { // 裸边:客户端处于"仅连接数量"模式,没有质量字段
       card.appendChild(hint('仅连接数量模式:未上报质量字段'));
@@ -146,43 +149,65 @@ function renderDetail() {
       const head = el2('div', { class: 'ch-line' });
       head.appendChild(span('ch-name', CH_NAMES[c.ch] || ('通道 ' + c.ch)));
       card.appendChild(head);
-      card.appendChild(kv('RTT', c.rtt != null ? c.rtt + ' ms' : '—'));
-      card.appendChild(kv('发送 → 对端', fmtRate(outbound ? c.up : c.down)));
-      card.appendChild(kv('接收 ← 对端', fmtRate(outbound ? c.down : c.up)));
-      card.appendChild(kv('发送积压', c.buffered != null ? fmtBytes(c.buffered) : '—'));
-      card.appendChild(kv('ICE 状态', c.iceState || '—'));
-      card.appendChild(kv('路径', netPathName(c.netPath)));
-      // 选中候选对(诊断):路径判定依据是"对端地址是否与本机同网段",这里直接给出实际选中的候选
-      if (c.candLocal || c.candRemote)
-        card.appendChild(kv('候选对', (c.candLocal || '—') + ' → ' + (c.candRemote || '—')));
+      // 只看选中端自己报的那一份:up/down 就是该端的发出/收到,不镜像、不兜底、不取平均
+      const s = c[mySide];
+      if (!s) {
+        card.appendChild(hint('该端未上报此通道(对端有数据)'));
+        continue;
+      }
+      card.appendChild(kv('RTT', s.rtt != null ? s.rtt + ' ms' : '—'));
+      card.appendChild(kv('发送 → 对端', fmtRate(s.up)));
+      card.appendChild(kv('接收 ← 对端', fmtRate(s.down)));
+      card.appendChild(kv('发送积压', s.buffered != null ? fmtBytes(s.buffered) : '—'));
+      card.appendChild(kv('ICE 状态', s.iceState || '—'));
+      card.appendChild(kv('路径', netPathName(s.netPath)));
+      // 选中候选对(诊断):路径判定依据是"对端地址是否与本机同网段",这里直接给出该端实际选中的候选
+      if (s.candLocal || s.candRemote)
+        card.appendChild(kv('候选对', (s.candLocal || '—') + ' → ' + (s.candRemote || '—')));
     }
     detailBody.appendChild(card);
   }
 }
 
 // ---------- 质量表格 ----------
+// 一行 = 选中节点视角下"某条边的一个通道":所有数值都取自选中节点自己上报的那一份。
+// A→B / B→A 两列按物理方向落座(选中端是 b 时,它报的 down 就是 A→B),两列始终形容同一对方向,
+// 换个节点选中只是换一组计数器来看同一对方向。未选中节点时表格为空。
 function renderTable() {
   tableBody.textContent = '';
-  // 一行 = 一条边的某一个通道:服务端只给精确到通道的数据,表格不再有"整条边"的汇总行
+  const node = selected != null ? topo.nodes.find(n => n.hostNum === selected) : null;
   const rows = [];
-  for (const e of topo.edges)
-    for (const c of e.channels || [])
-      rows.push({ e, c });
+  if (node) {
+    for (const e of topo.edges) {
+      if (e.a !== selected && e.b !== selected) continue;
+      const mySide = e.a === selected ? 'a' : 'b';
+      for (const c of e.channels || [])
+        rows.push({ e, c, mySide });
+    }
+  }
+  tableCaptionEl.textContent = node
+      ? ('连接质量(视角:' + node.hostName + ' #' + node.hostNum + ')')
+      : '连接质量';
   emptyHint.style.display = rows.length ? 'none' : 'block';
-  for (const { e, c } of rows) {
+  emptyHint.textContent = node ? '该节点当前没有可展示的通道数据'
+                               : '点击拓扑中的节点,查看该节点视角的连接质量';
+  for (const { e, c, mySide } of rows) {
     const na = topo.nodes.find(n => n.hostNum === e.a);
     const nb = topo.nodes.find(n => n.hostNum === e.b);
+    const s = c[mySide];//选中端自己的那份观测(该端没报此通道时为空)
+    const ab = s ? (e.a === selected ? s.up : s.down) : null;//A → B 方向
+    const ba = s ? (e.a === selected ? s.down : s.up) : null;//B → A 方向
     const tr = document.createElement('tr');
     tr.append(
       td((na ? na.hostName : '未知') + ' #' + e.a),
       td((nb ? nb.hostName : '未知') + ' #' + e.b),
       td(CH_NAMES[c.ch] || ('通道 ' + c.ch)),
-      td(c.rtt != null ? c.rtt + ' ms' : '—', rttColor(c.rtt)),
-      td(fmtRate(c.up)),
-      td(fmtRate(c.down)),
-      td(c.buffered != null ? fmtBytes(c.buffered) : '—'),
-      td(c.iceState || '—'),
-      td(netPathName(c.netPath))
+      td(s && s.rtt != null ? s.rtt + ' ms' : '—', s ? rttColor(s.rtt) : null),
+      td(fmtRate(ab)),
+      td(fmtRate(ba)),
+      td(s && s.buffered != null ? fmtBytes(s.buffered) : '—'),
+      td(s && s.iceState ? s.iceState : '—'),
+      td(netPathName(s ? s.netPath : null))
     );
     tableBody.appendChild(tr);
   }
@@ -241,13 +266,18 @@ cfgForm.addEventListener('submit', async ev => {
   const pass = document.getElementById('cfg-pass').value;
   if (user) sessionStorage.setItem('meshAdminUser', user);
   if (pass) sessionStorage.setItem('meshAdminPass', pass);
-  const body = new URLSearchParams({
+  //请求体用 JSON:fields 是真正的字符串数组,与服务端的 Set<String> 一一对应(不再拼逗号串)
+  const body = JSON.stringify({
     enabled: cfgEnabled.checked,
-    interval: cfgInterval.value,
-    fields: readChoices(cfgFieldsBox).join(','),
+    interval: Number(cfgInterval.value),
+    fields: readChoices(cfgFieldsBox),
   });
   try {
-    const r = await fetch('/stats/config', { method: 'POST', headers: authHeader(), body });
+    const r = await fetch('/stats/config', {
+      method: 'POST',
+      headers: { ...authHeader(), 'Content-Type': 'application/json' },
+      body,
+    });
     if (r.status === 401) { cfgMsg.textContent = '需要管理员身份(或账号密码不正确)'; return; }
     if (!r.ok) { cfgMsg.textContent = '下发失败: HTTP ' + r.status; return; }
     const cfg = await r.json();
@@ -301,11 +331,16 @@ function hint(text) {
   div.textContent = text;
   return div;
 }
-// 为"一条边"选一个展示代表通道(仅拓扑线上色与标注用):主通道优先,否则通道号最小的。
-// 一张图上每条边只画一条线,故必须有这么个"代表";它不改变任何数据,只是线上的颜色与数字。
-function repChannel(edge) {
-  const chs = edge.channels || [];
-  return chs.length ? (chs.find(c => c.ch === 0) || chs[0]) : null;
+// 拓扑线取谁的数字:固定用 hostNum 较小端(a)视角 —— 该端在此边上的代表通道(主通道优先,否则通道号最小);
+// a 端整条边都没数据时退到 b 端,免得线假灰。它只决定线的颜色与那个数字,不改动任何数据。
+function lineView(edge) {
+  return pickSide(edge, 'a') || pickSide(edge, 'b');
+}
+function pickSide(edge, key) {
+  const chs = (edge.channels || []).filter(c => c[key]);
+  if (!chs.length) return null;
+  const c = chs.find(x => x.ch === 0) || chs[0];
+  return { ch: c.ch, side: c[key] };
 }
 function rttColor(rtt) {
   if (rtt == null) return '#6b7280';

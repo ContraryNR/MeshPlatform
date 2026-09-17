@@ -338,6 +338,70 @@
 - 附注:`server/src/main/resources/static/` 与本次新增的多个 Java 文件在 git 里仍是未跟踪状态
   (本轮未提交,按惯例仅在用户要求时提交)。
 
+### POST /stats/config 改为 JSON 请求体(2026-09-17,用户要求)
+- 动因:用户提出"改成 JSON 请求体(而不是字符串)传参,语义更明确" —— 原先 fields 是个逗号串
+  (`?fields=rtt,traffic`),服务端要 split/trim/跳空段,前端要 join(',') 再拼,语义藏在字符串格式里。
+- 落地:
+  - `@RequestParam boolean enabled, int interval, String fields` →
+    `@RequestBody ConfigUpdate(Boolean enabled, Integer interval, LinkedHashSet<String> fields)`,fields 直接是 JSON 数组。
+  - 两处语义比原来更明确:① fields 缺省(null)= 保持原值、空数组 = 裸边(原先靠"参数缺失"与"空串"区分);
+    ② enabled/interval 用包装类型 + 显式判空 → 体里漏写时回 400,而不是让 boolean/int 静默变成 false/0
+    (那会悄悄把上报关掉)。
+  - app.js 同步:`URLSearchParams` + `join(',')` → `JSON.stringify({enabled, interval:Number(...), fields:[...]})`
+    + `Content-Type: application/json`。
+  - `ReportConfig.parseFields` 保留,但从此只服务 application.properties 那条路(@Value 注入的仍是逗号串)。
+- 自己引入又修掉的一处:DTO 里 fields 先写成 `Set<String>`,Jackson 对 Set 默认绑成 **HashSet(哈希序)**
+  → 回显顺序被打乱(发 `rtt,traffic,buffered,state,ice,path` 回显成 `path,rtt,buffered,ice,state,traffic`),
+  而原 `parseFields` 用 LinkedHashSet 是保序的;改成 `LinkedHashSet<String>` 后照抄书写顺序。
+- 验证(curl 实测,请求形状与页面 fetch 等价):
+  无认证 POST → 401;合法 JSON(interval 8000 + fields[2 项])→ 200 且 ttl 跟着变 24000;
+  非法字段组 → 400;漏写 enabled → 400;不带 fields → 保持上一份;空数组 `[]` → 裸边;顺序原样回显;
+  日志三连 `[WS] 统计上报配置已下发全部在线节点: ... fields=[...]`,无异常。
+- 观察(未改,pre-existing):`ALLOWED_FIELDS = Set.of(...)` 的迭代顺序随 JVM 运行而变(两次启动分别是
+  `buffered,rtt,path,state,traffic,ice` 与 `path,rtt,buffered,ice,traffic,state`),而管理页的字段复选框组
+  是按它渲染的 → 勾选框顺序会在重启后跳。换成有序不可变集合即可(一行),本次未动。
+- 附注:400 的**具体原因**默认不写进 HTTP 响应体(Spring Boot 的 `server.error.include-message` 默认 never),
+  页面也只显示"下发失败: HTTP 400";要让原因可见,加一行 `server.error.include-message=always` 即可,本次未动。
+- 补充裁决(用户问"能不能用 @ConfigurationProperties 免掉字符串转集合",经实测后决定**保持现状**):
+  - 想省掉手写解析,其实连注解都不用 —— 把 `@Value` 的参数类型从 `String` 改成 `Set<String>`,
+    Spring 默认转换器就会按逗号拆分。用 `@Value` 背后同一个转换器(Spring Framework 7.0.9)实测:
+    `rtt,traffic` ✓、`rtt, traffic` **会 trim** ✓、`rtt,rtt,ice` 去重且保序(LinkedHashSet)✓、
+    空串 → 空集合 ✓(留空=裸边 的语义保住);**唯一缺口:空段被保留成空字符串元素**
+    (`rtt,,ice` → size=3、`rtt,` 与 `"  "` 也各多一个空元素),而 parseFields 是显式跳过的。
+  - 挂 `@ConfigurationProperties` 到 ReportConfig 本体不合适:① 它只对启动时那一次绑定生效,
+    而这个类的另一半身份是"运行时可整体替换的领域值对象"(POST 用 JSON 绑定后 new 一个,volatile 持有);
+    ② 前缀 `mesh.stats` 与类的边界不重合(同前缀下的 `ttl-factor` 刻意不属于它,注解会静默忽略 —— 行为对但语义错位)。
+  - 结论:**parseFields 保留**,两个解析器各自守一个边界 —— 配置文件(人写,逗号串是 properties 的惯用形态,
+    且现在没有任何地方再解析 URL 参数字符串了)与 HTTP 接口(程序对程序,JSON 数组)。
+    真正该避免的是"同一边界里两套格式",本例不存在;要彻底统一应走"另立 @ConfigurationProperties 属性类"那条路,
+    而不是把 HTTP 退回字符串。此决定与实测数据留档,免得后人凭印象来回改。
+
+### 取消"通道内两端观测归一",展示改为按上报方视角(2026-09-17,用户提出)
+- 动因:用户提出"如果这种情况都要合并,那让双端都上报的意义是什么?" —— 主张区分一条边的两端,
+  选中哪个节点就展示哪个节点作为 source 的通道状态。两条支撑事实:① 落库层**一直是按单端存的**
+  (PeerStatRecord 带 sourceHostNum;分钟聚合 group by source/peer/channel),合并只发生在展示层;
+  ② 旧合并规则本身在制造缺陷 —— iceState/candLocal/candRemote 是"x 端存在就只认 x 端"(x = hostNum 较小端),
+  同一张拓扑换个编号顺序就可能少几列;buffered 取大也掩盖了"是哪一端在堵"。
+- 边界澄清(用户论据需要修正的一处):up/down **不是两份独立测量** —— A.up ≡ B.down(我发 = 对端收),
+  两端上报的是同一物理量的两次观测,故旧"镜像兜底"不是丢信息而是补缺;取消合并后两份并列出现,
+  它们理应相等,差异本身成为诊断信号(计时错位/某端没报/计数异常)。rtt 同样是同一连接的两次测量,
+  但两端各自测得的数值有意义(buffered/netPath/iceState/候选对则完全各属一端)。
+- 落地:
+  - 仓储:删除 MergedCh 与整组合并函数(merge/mergeRtt/pickRate/maxLong/worstNetPath + NET_PATH_RANK);
+    snapshot 改为交出"通道 → 上报方 hostNum → 该端原样观测"的并列结构;DirSnap 新增 hasAnyData
+    (进拓扑的判据,比入库判据 hasAnyAttr 少一个无展示位的 pcState)。
+  - Packer:形状变为 `{a,b,channels:[{ch, a:{...}, b:{...}}]}`,两端各自原样落笔,某端没报该通道则整个对象不出现。
+  - 前端:节点详情与质量表格**完全跟随选中节点**(未选中时表格为空并在标题写明视角,提示"点击节点查看");
+    A→B / B→A 两列按物理方向落座(选中端是 b 时它报的 down 就是 A→B),换成选中对端只是换一组计数器看同一对方向;
+    详情面板的"发送/接收"直接取该端自己的读数(不再需要按方向翻转)。拓扑线保持"一条边一条线",
+    固定取 hostNum 较小端的代表通道(a 端无数据时退到 b 端),图例里写明"线上数字 = hostNum 较小端所报 RTT"。
+  - C++ 与数据库**零改动**(它们本来就报/存单端数据)。
+- 验证(2026-09-17):编译通过;起服后三个回归脚本全绿 ——
+  mesh_ws_test2.py 断言改为"两端并列各自原样"(ch0 两端 rtt 40/50 并存而非旧的平均 45、速率不跨端镜像、
+  真 0 保留、未上报的那端不出现空对象);mesh_default_field_check.py 的缺省/真 0 三情形按端断言;
+  mesh_ttl_sweep_check.py 照旧(无上报时自行摘净)。附注:未过浏览器实测(本机无可用浏览器驱动),
+  前端改动为纯渲染逻辑,数据契约已由脚本覆盖。
+
 ## 下一步可选方向(按建议优先级)
 1. **LLM 网络诊断助手(AIOps)** — 基于汇聚的状态数据,自然语言查询网络状态、
    NAT 打洞失败根因分析(打洞路径数据已就绪)、异常告警。技术增量:LLM API 集成、Prompt 工程。

@@ -89,15 +89,19 @@ P2P 组网平台,控制面/数据面分离架构:
   (清与取之间落进的写入会重新置脏,由下一拍兜住,不会丢)。
   对外动作:write/removeNode/snapshot/aggregate/cleanup + tick;锁只保护内存快照,
   DB I/O 与推流都在锁外;**读写必须分离** —— 读路径只过滤不动容器;
-  **两端观测的合并也在这**:snapshot 交出已归一的 MergedCh(通道级)与节点列表组成的一致性切面
-  Snapshot;DirSnap 是摄入项(不可变,兼判裸边 hasAnyAttr);边身份 Edge(a,b) 构造即 a<b 规范化
-  (A 报"peer=B"与 B 报"peer=A"因此落进同一条边)
+  **本层不做任何两端归一/取舍**(2026-09-17 起):snapshot 交出"通道 → 上报方 hostNum → 该端原样观测"
+  的并列结构 —— 同一通道两支观测各说各话(buffered 是哪端在堵、iceState/候选对是哪端的、rtt 是哪端测的,
+  取平均/镜像兜底/取大/取最差都会抹平这些信息);DTO 侧的 MergedCh 与其合并函数已整组删除。
+  DirSnap 是摄入项(不可变;hasAnyAttr 判裸边入库,hasAnyData 判是否进拓扑 —— 后者少一个无展示位的 pcState);
+  边身份 Edge(a,b) 构造即 a<b 规范化(A 报"peer=B"与 B 报"peer=A"因此落进同一条边)
 - server/.../TopologyPacker.java — 切面 → 分发给浏览器的内容,链上位于仓储与分发器之间:
   仓储 tick 把切面递到 deliver(打包后交给分发器),/stats/latest 则直接用纯变换 pack ——
-  两条路径共用同一套打包规则。节点富化 hostName、逐通道落笔,不碰容器;
-  字段缺省语义:未配置的字段组在 DirSnap/MergedCh/明细表/拓扑 JSON 里一律为 null(key 缺失),
-  与"空闲连接的 0 速率/0 积压"这类真值区分;输出 **只到 channel,不做任何跨通道汇总**
-  (没有边级 RTT/总速率/最差路径),通道内的归一(两端 RTT 取平均、速率镜像兜底)不是跨通道合并;
+  两条路径共用同一套打包规则。节点富化 hostName、两端观测各自原样落笔,不碰容器、**不做任何取舍**;
+  形状:{ts, nodes:[{hostNum,hostName}], edges:[{a,b,channels:[{ch, a:{...}, b:{...}}]}]}
+  —— 通道对象内以两端 hostNum 为键并列两份观测(某端没报该通道则整个对象不出现);
+  up/down 是**该端自己的方向读数**(我发/我收,故 A.up ≡ B.down,两份并列即一致性校验)。
+  字段缺省语义:未配置的字段组在 DirSnap/明细表/拓扑 JSON 里一律为 null(key 缺失),
+  与"空闲连接的 0 速率/0 积压"这类真值区分;输出 **只到 channel,无任何跨通道汇总**;
   裸边(无 channels)只有 a/b
 - server/.../TopologyDistributor.java — 拓扑负载的出口:定事件名、序列化一次、广播给全部 SSE 页面,
   并留住最近一份负载供新页面接入时立即出图(sendLatest)。与 SsePushService 的分工:后者管
@@ -105,19 +109,23 @@ P2P 组网平台,控制面/数据面分离架构:
 - server/.../ReportConfig.java — 下发给客户端的统计上报配置(开关/周期/字段组)的唯一载体,
   与 C++ 端 reportconfig.h 的成员严格一一对应;不可变 record,运行时改配置是整体替换引用,
   故读取方拿到的永远是一份自洽的配置(不会出现"新周期配旧字段"的跨字段撕裂);
-  ALLOWED_FIELDS(合法字段组白名单)与 parseFields(文本→集合)也在这。
+  ALLOWED_FIELDS(合法字段组白名单)与 parseFields(文本→集合)也在这 —— 后者从 2026-09-17 起
+  只服务 application.properties 那条路(HTTP 请求体已是 JSON 数组,不再拼逗号串)。
   边界:只装"会下发、能左右客户端行为"的东西 —— 改一个值客户端行为会变才进来;ttl 不满足该条件
 - server/.../StatsController.java + SsePushService.java — /stats/latest|history|stream|config
-  (GET 查配置 + POST 调整并重新下发)与 SSE 推送管理(失效连接兜 IOException/IllegalStateException);
+  (GET 查配置 + POST 调整并重新下发;POST 的请求体是 JSON `{enabled,interval,fields[]}` ——
+  fields 缺省 = 保持原值、空数组 = 裸边,不再用逗号串)与 SSE 推送管理(失效连接兜 IOException/IllegalStateException);
   /stats/latest 走 packer.pack(repo.snapshot()) 现场取切面(查询要的是"此刻",不是"最近一次推流"),
   /stats/stream 接入时用 TopologyDistributor.sendLatest() 补一份最近负载;
   改配置的编排仍是"manager 改 → 信令层重下发"(manager 不认识 WebSocket)
 - server/.../entity/ + repository/ — PeerStatRecord(明细,保留 24h)/PeerStatAggregate(分钟聚合)
 - server/src/main/resources/static/ — 管理页(手写 SVG 拓扑,零依赖),http://localhost:8080/
-  跨通道汇总在服务端与上报链路里已全部移除(拓扑 JSON 只到 channel);质量表格一行 = 一条边的一个通道、
-  节点详情逐通道分块。**唯一的例外是拓扑图的线**:一张图上每条边只画一条线,颜色与标注取"代表通道"
-  (主通道优先,否则通道号最小)—— 这是页面刻意的渲染选择,分通道数据在表格与详情里逐条可查,
-  别再把它当"漏删的跨通道合并"改掉(app.js 的 repChannel 处有注记)
+  展示按**选中节点的视角**:选中谁就只看它作为上报方的那一份观测(节点详情与质量表格都跟随,
+  未选中节点时表格为空并在标题里写明视角);某端对象不存在 = 该端没报该通道(显示"—")。
+  up/down 的"发送/接收"随视角落座,A→B / B→A 两列表头形容的是物理方向而非某一端。
+  跨通道汇总在服务端与上报链路里已全部移除(拓扑 JSON 只到 channel);
+  **唯一不跟随选中、也不做两端合并的是拓扑那条线**:一条边一条线,固定取 hostNum 较小端的
+  代表通道(a 端无数据时退到 b 端),图例里写明"线上数字 = hostNum 较小端所报 RTT"
 
 ## 进度
 见 PROGRESS.md(每次会话结束前更新)

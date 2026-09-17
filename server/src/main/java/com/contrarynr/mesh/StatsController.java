@@ -5,6 +5,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -13,6 +14,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import tools.jackson.databind.JsonNode;
 
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -78,22 +80,27 @@ public class StatsController {
         cfg.put("allowedFields", ReportConfig.ALLOWED_FIELDS);
         return cfg;
     }
-    //运行时调整统计上报配置并立即重新下发:
-    //  POST /stats/config?enabled=true&interval=5000&fields=rtt,traffic
-    //fields 省略 = 保持原值;传空串 = 清空(表示"裸边")
+    //配置更新请求体(JSON):fields 就是真正的字符串数组,不必再让人拼逗号串、也不会有"逗号后面多个空格"这类噪声
+    //  {"enabled":true,"interval":5000,"fields":["rtt","traffic"]}
+    //fields 缺省(null)= 保持原值;给空数组 = 清空(表示"裸边",只报边的存在性)
+    //fields 声明成 LinkedHashSet 而不是 Set:Jackson 对 Set 默认绑成 HashSet(哈希序),回显顺序会莫名其妙地跳;
+    //LinkedHashSet 才能保住书写顺序(与原先 parseFields 的行为一致)
+    public record ConfigUpdate(Boolean enabled, Integer interval, LinkedHashSet<String> fields) {}
+    //运行时调整统计上报配置并立即重新下发
     @PostMapping("/config")
-    public Map<String, Object> updateConfig(@RequestParam boolean enabled, @RequestParam int interval,
-        @RequestParam(required = false) String fields)
+    public Map<String, Object> updateConfig(@RequestBody ConfigUpdate req)
     {
+        //请求体里漏写这两个必填项时,给一句能看懂的话,而不是让 boolean/int 静默变成 false/0
+        if (req.enabled() == null || req.interval() == null)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请求体需含 enabled 与 interval");
         //下限防刷(1000ms),上限防"拓扑看起来像死了"(60000ms)
-        if (interval < 1000 || interval > 60000)
+        if (req.interval() < 1000 || req.interval() > 60000)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "interval 需在 [1000,60000] ms");
-        Set<String> fSet = fields != null ? ReportConfig.parseFields(fields)
-                : configManager.reportConfig().fields();
+        Set<String> fSet = req.fields() != null ? req.fields() : configManager.reportConfig().fields();
         for (String f : fSet)
             if (!ReportConfig.ALLOWED_FIELDS.contains(f))
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "不支持的字段组: " + f);
-        configManager.setReportConfig(enabled, interval, fSet);
+        configManager.setReportConfig(req.enabled(), req.interval(), fSet);
         signalingHandler.broadcastStatsCfg();
         return config();
     }

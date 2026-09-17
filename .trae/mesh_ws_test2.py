@@ -1,4 +1,4 @@
-# MeshPlatform stats 协议验证:多通道逐通道归一 + netPath + 模式一裸边
+# MeshPlatform stats 协议验证:两端观测并列(不做平均/镜像/取大) + netPath + 模式一裸边
 # 仅标准库裸 socket WebSocket
 import base64, json, os, socket, struct, time, urllib.request
 
@@ -79,18 +79,28 @@ time.sleep(1)
 latest = json.loads(http_get("/stats/latest"))
 print("双通道边:", json.dumps(latest["edges"], ensure_ascii=False))
 e = latest["edges"][0]
-assert set(e.keys()) == {"a", "b", "channels"}, e   # 边级不再有任何跨通道汇总字段
+assert set(e.keys()) == {"a", "b", "channels"}, e            # 边级不再有任何汇总字段
 chs = {c["ch"]: c for c in e["channels"]}
-assert sorted(chs) == [0, 1], e                     # 通道并集,升序
+assert sorted(chs) == [0, 1], e                              # 通道并集,升序
 c0, c1 = chs[0], chs[1]
-# 同一通道两端是对同一物理量的两支观测:rtt 取平均,速率主观测缺失时取对端镜像
-assert c0["rtt"] == 45, e                           # sim-a 40 / sim-b 50
-assert sorted([c0["up"], c0["down"]]) == [1000, 2000], e
-assert c0["netPath"] == "lan" and c0["iceState"] == "completed", e
-assert c1["rtt"] == 60 and c1["buffered"] == 2048, e  # 只有 sim-a 报过 ch1
-assert sorted([c1["up"], c1["down"]]) == [1000, 50000], e
-assert c1["netPath"] == "wan", e
-print("断言通过: 逐通道观测归一(RTT平均/速率镜像兜底)/通道并集/无跨通道汇总")
+# 通道对象内两端各自观测并列:键就是两端 hostNum(sim-a / sim-b 谁小谁是 a)
+ka = "a" if numa < numb else "b"                             # sim-a 的观测落在哪个键下
+kb = "b" if numa < numb else "a"                             # sim-b
+sa0, sb0 = c0[ka], c0[kb]
+assert set(c0.keys()) == {"ch", "a", "b"}, e                 # ch0 两端都报过 -> 两份都在
+assert sa0["rtt"] == 40 and sb0["rtt"] == 50, e              # 各报各的:不取平均(旧行为是 45)
+assert sa0["up"] == 1000 and sa0["down"] == 2000, e          # up/down 是该端自己的发出/收到
+assert sb0["up"] == 2000 and sb0["down"] == 1000, e          # 不跨端镜像兜底
+assert sa0["buffered"] == 0 and sb0["buffered"] == 0, e      # 真 0 保留为 0
+assert sa0["netPath"] == "lan" and sb0["netPath"] == "lan", e
+assert sa0["iceState"] == "completed" and sb0["iceState"] == "completed", e
+# 只有 sim-a 报过 ch1:只出现它那一端,另一端不补空对象
+assert set(c1.keys()) == {"ch", ka}, e
+sa1 = c1[ka]
+assert sa1["rtt"] == 60 and sa1["buffered"] == 2048, e
+assert sa1["up"] == 50000 and sa1["down"] == 1000, e
+assert sa1["netPath"] == "wan", e
+print("断言通过: 两端观测并列各自原样/通道并集/无跨通道汇总/无跨端兜底")
 
 # 模式一裸边:sim-c 只报存在性
 sc, cc = connect(); send_text(sc, json.dumps({"type": "hostname", "hostname": "sim-c"}))

@@ -12,15 +12,17 @@ import java.util.SortedMap;
 链上的位置:仓储 → 本类 → 分发器。仓储自主推流时把切面递到 deliver,本类打包后交给分发器;
 查询路径(/stats/latest)则直接用纯变换 pack —— 两条路径共用同一份打包规则,页面看到的形态永远一致。
 
-只做"呈现"这一件事:节点富化 hostName、把已合并的通道逐字段落笔。取数与过滤在仓储、锁在仓储,
-发送在分发器,本类不碰容器也不发消息。
+只做"呈现"这一件事:节点富化 hostName、把两端各自的观测原样落笔。取数与过滤在仓储,
+发送在分发器,本类不碰容器;更关键的是**不做任何取舍** —— 不取平均、不镜像兜底、不取最差,
+谁报的就是谁的。
 
 {ts, nodes:[{hostNum,hostName}],
- edges:[{a,b,channels:[{ch,rtt,up,down,buffered,netPath,iceState,candLocal,candRemote}]}]}
-只给精确到 channel 的数据 —— 不做任何跨通道汇总(不输出"边的总速率/最差路径/代表通道 RTT"):
-汇总对运维不够精确(排查要落到具体通道),对页面也不够准确。
-每个通道内的 up/down/rtt 是"同一通道两端两支观测"归一并后的结果,不是跨通道合并。
-缺省(该字段组未配置 / 该端未上报)表现为 JSON 里不含该 key,而非 0 —— 与真 0 区分。
+ edges:[{a,b,channels:[{ch, a:{rtt,up,down,buffered,netPath,iceState,candLocal,candRemote},
+                            b:{同左}}]}]}
+同一通道的两端数据并列:up/down 是**该端自己的方向读数**(我发/我收),rtt 是该端自己测的,
+buffered 是该端自己的发送队列,iceState/候选对是该端自己选中的 —— 两端各一份,天然可与对端比对。
+某端没上报该通道、或该端字段全缺省(字段组未配置):整个 "a"/"b" 对象不出现(前端显示"—")。
+字段缺省表现为对象里不含该 key,而非 0 —— 与真 0 区分。
 裸边(仅连接数量模式)只有 a/b,无 channels,前端灰显。*/
 @Component
 public class TopologyPacker {
@@ -48,38 +50,51 @@ public class TopologyPacker {
             String name = registry.hostNameFor(hostNum);
             n.put("hostName", name != null ? name : "未知主机");
         }
-        //描述当前全部边(edgeState) —— 精确到 channel,不做任何跨通道汇总
+        //描述当前全部边(edgeState) —— 精确到 channel,通道内两端观测并列,不做任何取舍/汇总
         ArrayNode edges = root.putArray("edges");
-        for (Map.Entry<EdgeSnapRepository.Edge, SortedMap<Integer, EdgeSnapRepository.MergedCh>> e : snap.edges().entrySet())
+        for (Map.Entry<EdgeSnapRepository.Edge, SortedMap<Integer, Map<Integer, EdgeSnapRepository.DirSnap>>> e
+                : snap.edges().entrySet())
         {
+            int a = e.getKey().a(), b = e.getKey().b();
             ObjectNode edge = edges.addObject();
-            edge.put("a", e.getKey().a());
-            edge.put("b", e.getKey().b());
+            edge.put("a", a);
+            edge.put("b", b);
             if (e.getValue().isEmpty())
                 continue;//裸边(仅连接数量模式):只有 a/b,前端灰显
             ArrayNode chArr = edge.putArray("channels");//已按通道号升序
-            for (EdgeSnapRepository.MergedCh c : e.getValue().values())
+            for (Map.Entry<Integer, Map<Integer, EdgeSnapRepository.DirSnap>> ce : e.getValue().entrySet())
             {
                 ObjectNode cn = chArr.addObject();
-                cn.put("ch", c.ch());
-                if (c.rtt() != null)
-                    cn.put("rtt", c.rtt());
-                if (c.up() != null)
-                    cn.put("up", c.up());
-                if (c.down() != null)
-                    cn.put("down", c.down());
-                if (c.buffered() != null)
-                    cn.put("buffered", c.buffered());
-                if (c.netPath() != null)
-                    cn.put("netPath", c.netPath());
-                if (c.iceState() != null)
-                    cn.put("iceState", c.iceState());
-                if (c.candLocal() != null)
-                    cn.put("candLocal", c.candLocal());
-                if (c.candRemote() != null)
-                    cn.put("candRemote", c.candRemote());
+                cn.put("ch", ce.getKey());
+                //键就是这条边的两端 hostNum,前端一眼知道哪份观测属于哪个节点
+                writeSide(cn, "a", ce.getValue().get(a));
+                writeSide(cn, "b", ce.getValue().get(b));
             }
         }
         return root;
+    }
+
+    //单端观测落笔(不含 pcState:它只入库、没有展示位)
+    private static void writeSide(ObjectNode chObj, String name, EdgeSnapRepository.DirSnap s)
+    {
+        if (s == null)
+            return;//这一端没上报该通道:整个对象不出现,前端显示"—"
+        ObjectNode side = chObj.putObject(name);
+        if (s.rtt() != null)
+            side.put("rtt", s.rtt());
+        if (s.up() != null)
+            side.put("up", s.up());
+        if (s.down() != null)
+            side.put("down", s.down());
+        if (s.buffered() != null)
+            side.put("buffered", s.buffered());
+        if (s.netPath() != null)
+            side.put("netPath", s.netPath());
+        if (s.iceState() != null)
+            side.put("iceState", s.iceState());
+        if (s.candLocal() != null)
+            side.put("candLocal", s.candLocal());
+        if (s.candRemote() != null)
+            side.put("candRemote", s.candRemote());
     }
 }

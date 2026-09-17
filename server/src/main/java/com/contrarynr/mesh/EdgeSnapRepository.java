@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -22,22 +23,16 @@ import java.util.SortedSet;
 import java.util.TreeMap;
 import java.util.TreeSet;
 
-/*统计仓储 —— 自管理仓库:内存快照(节点心跳 + 边 × 两端 × 通道)、明细落库、分钟聚合、24h 清理,
-外加自己的 tick:过期自检 + 脏了就推流。
-
-命名:本类不是 JPA 仓储(repository 包下那批才是),故标 @Component;Repository 在这里指它在数据流里的
-位置 —— 上游:被摄入侧写入,再自主把切面推给 packer。
-
-"自管理"落在三处,一处都不外派:
+/*"自管理"落在三处,一处都不外派:
  1. 过期事务:sweep 只由本类 tick 触发(读写分离的写侧),不由任何查询触发 —— 否则"多久清一次"
     会被管理页的轮询频率绑架;摘除后置脏,页面随之更新(客户端全部掉线、再无上报时也照样清理、照样上图)。
  2. 推流决策:dirty 由写入/断连/摘除置位,tick 见脏才推 —— 数据没脏推流没有意义;
     纯心跳(空 edges 且节点已知)不置脏,免得空闲节点把页面刷成心跳刷屏。
  3. tick 节拍 1s:既是"写入到上图"的延迟上限(≤1s),也是推流速率上限(同一拍内多个节点上报只推一次)。
-判活 TTL 不在本类,而是每拍向 StatsConfigManager 取(见下),两者同源就不会出现"周期改了、判活口径没改"。
-
-边界:本类只认语义化的摄入项(DirSnap),不认上报报文 —— 报文解析归摄入侧;
+判活 TTL 不在本类,而是每拍向 StatsConfigManager 取(见下),两者同源就不会出现"周期改了、判活口径没改"。*/
+/*边界:本类只认语义化的摄入项(DirSnap),不认上报报文 —— 报文解析归摄入侧;
 锁只保护内存快照(方法自带锁),明细落库与推流都在锁外,不让 SQLite 单写者或 SSE 拖住容器。*/
+
 @Component
 public class EdgeSnapRepository {
     private final PeerStatRecordRepository recordRepo;
@@ -53,8 +48,6 @@ public class EdgeSnapRepository {
     private final Map<Integer, Long> nodeLastSeen = new HashMap<>();
     //边快照:edge → 上报方 → 通道 → 方向观测
     private final Map<Edge, Map<Integer, Map<Integer, DirSnap>>> edges = new HashMap<>();
-    //链路层级排序:relay(中继降级) > wan(公网) > lan(局域网),取最差值作判据
-    private static final Map<String, Integer> NET_PATH_RANK = Map.of("lan", 0, "wan", 1, "relay", 2);
     //脏标记:本仓储关心的变化(写入/断连/摘除)才置位,推完清零。
     //单个布尔标记用 volatile 足够 —— 只要求可见性,不涉及"读-改-写"复合不变量(集合仍必须靠互斥锁)
     //初值为脏:启动后先宣告一次"当前是空的",页面接上就有一个确定的状态,不必干等第一个节点上报
@@ -66,7 +59,9 @@ public class EdgeSnapRepository {
 
     /*单端一次上报的通道观测(不可变):由摄入侧翻译好交来,本类只归档。
     ts 是归档用的到达时刻(过期判定只看它);缺省字段一律 null(未配置的字段组 / 客户端未上报),
-    与"空闲连接的 0 速率/0 积压"这类真值区分。peer/ch 是它自己的定位(落在哪条边的哪个通道上)。*/
+    与"空闲连接的 0 速率/0 积压"这类真值区分。peer/ch 是它自己的定位(落在哪条边的哪个通道上)。
+    up/down 是**该端自己的方向读数**(我发/我收):同一方向的速率两端各有一份(A.up ≡ B.down),
+    两份并列就是一致性校验;本层不做任何取舍/平均/兜底。*/
     record DirSnap(long ts, int peer, int ch, Integer rtt, Long up, Long down, Long buffered,
         String pcState, String iceState, String netPath, String candLocal, String candRemote)
     {
@@ -75,22 +70,18 @@ public class EdgeSnapRepository {
         boolean hasAnyAttr()
         {return rtt != null || up != null || down != null || buffered != null
                 || pcState != null || iceState != null || netPath != null;}
-    }
-
-    /*合并后的通道视图:同一通道两端两支观测归一后的结果。
-    合并规则属于"数据聚合"而不是"呈现",故归本层,消费端拿到的就是可直接落笔的数据。
-    不含 pcState —— 该字段只入库、没有拓扑展示位,带进来只会多出一个恒缺省的列。*/
-    record MergedCh(int ch, Integer rtt, Long up, Long down, Long buffered,
-        String netPath, String iceState, String candLocal, String candRemote)
-    {
-        //该通道是否有可展示内容:全缺省(如字段组未配置)则整条通道不进入切面
+        //是否值得进入拓扑:比入库判定少一个 pcState —— 该字段没有展示位,算进来只会多一行全"—"的通道
         boolean hasAnyData()
         {return rtt != null || up != null || down != null || buffered != null
                 || iceState != null || netPath != null;}
     }
 
-    //一致性切面:同一时刻的在线主机(升序) + 存活边(通道升序),一次加锁取齐,避免"边引用了未知节点"
-    record Snapshot(long ts, List<Integer> nodes, Map<Edge, SortedMap<Integer, MergedCh>> edges) {}
+    /*一致性切面:同一时刻的在线主机(升序) + 存活边(通道升序;通道内按上报方并列两端各自的观测)。
+    通道内那层是"上报方 hostNum → 该端的原样观测":两端各一份,谁都不覆盖谁 —— 同一通道两支观测
+    本就该各说各话(buffered 是哪一端在堵、iceState/候选对是哪一端的、rtt 是哪一端测的),
+    合并会把这些信息抹平,故本层只归档不归一。*/
+    record Snapshot(long ts, List<Integer> nodes,
+        Map<Edge, SortedMap<Integer, Map<Integer, DirSnap>>> edges) {}
 
     //摄入写:归档一批通道观测(锁内只动内存,明细落库在锁外)
     public void write(int source, List<DirSnap> channels)
@@ -133,8 +124,8 @@ public class EdgeSnapRepository {
         packer.deliver(snapshot());
     }
 
-    /*读路径:过滤过期 + 合并两端观测,交出一致性切面。只读不改容器(摘除归 tick 的 sweep),
-    交出的 List/Map 皆为新建的不可变副本,锁外可安全使用。*/
+    /*读路径:过滤过期,把存活边按"通道 → 上报方"并列交出,两端观测各归各、不做任何归一。
+    只读不改容器(摘除归 tick 的 sweep);交出的 List/Map 皆为新建的不可变副本,锁外可安全使用。*/
     public synchronized Snapshot snapshot()
     {
         long now = System.currentTimeMillis();
@@ -143,7 +134,7 @@ public class EdgeSnapRepository {
         for (Map.Entry<Integer, Long> e : new TreeMap<>(nodeLastSeen).entrySet())
             if (now - e.getValue() <= ttlMs)
                 nodes.add(e.getKey());//已超 TTL 未上报:视为离线,不入切面
-        Map<Edge, SortedMap<Integer, MergedCh>> alive = new HashMap<>();
+        Map<Edge, SortedMap<Integer, Map<Integer, DirSnap>>> alive = new HashMap<>();
         for (Map.Entry<Edge, Map<Integer, Map<Integer, DirSnap>>> entry : edges.entrySet())
         {
             Edge k = entry.getKey();
@@ -153,12 +144,19 @@ public class EdgeSnapRepository {
             Map<Integer, DirSnap> fromB = fresh(sides.getOrDefault(k.b(), Map.of()), now, ttlMs);
             if (fromA.isEmpty() && fromB.isEmpty())
                 continue;//仅当两个节点的通道均全部过期时才过滤掉整条边
-            SortedMap<Integer, MergedCh> chs = new TreeMap<>();
+            SortedMap<Integer, Map<Integer, DirSnap>> chs = new TreeMap<>();
             for (int ch : channelsOf(fromA.keySet(), fromB.keySet()))//两端任一上报过即算,升序
             {
-                MergedCh c = merge(ch, fromA.get(ch), fromB.get(ch));
-                if (c.hasAnyData())//该通道没有任何可展示内容(如字段组未配置)则整条通道不输出
-                    chs.put(ch, c);
+                //两端各自的原样观测并列(a 在前 b 在后,便于人读与测试);某端此通道无可展示内容就不列它
+                Map<Integer, DirSnap> pair = new LinkedHashMap<>();
+                DirSnap sa = fromA.get(ch);
+                if (sa != null && sa.hasAnyData())
+                    pair.put(k.a(), sa);
+                DirSnap sb = fromB.get(ch);
+                if (sb != null && sb.hasAnyData())
+                    pair.put(k.b(), sb);
+                if (!pair.isEmpty())//两端都没内容(如字段组未配置)则整条通道不输出
+                    chs.put(ch, Collections.unmodifiableMap(pair));
             }
             alive.put(k, Collections.unmodifiableSortedMap(chs));
         }
@@ -232,58 +230,12 @@ public class EdgeSnapRepository {
         return out;
     }
 
-    //将两端通道号汇聚为一组(升序合并去重)
+    //将两端通道号汇聚为一组(升序合并去重)—— 只决定"这条边此刻有哪些通道",不碰通道内的观测
     private static SortedSet<Integer> channelsOf(Set<Integer> fromA, Set<Integer> fromB)
     {
         SortedSet<Integer> chs = new TreeSet<>(fromA);
         chs.addAll(fromB);
         return chs;
-    }
-
-    /*同一通道两端是对"同一物理量"的两支观测:x 为主、y 缺项时兜底;两端皆缺省则该项不输出(保持 null)。
-    方向速率要跨端取镜像(我发 = 对端收)。*/
-    private static MergedCh merge(int ch, DirSnap x, DirSnap y)
-    {
-        return new MergedCh(ch, mergeRtt(x, y),
-                pickRate(x != null ? x.up() : null, y != null ? y.down() : null),
-                pickRate(y != null ? y.up() : null, x != null ? x.down() : null),
-                maxLong(x != null ? x.buffered() : null, y != null ? y.buffered() : null),
-                worstNetPath(x != null ? x.netPath() : null, y != null ? y.netPath() : null),
-                x != null ? x.iceState() : (y != null ? y.iceState() : null),
-                x != null ? x.candLocal() : (y != null ? y.candLocal() : null),
-                x != null ? x.candRemote() : (y != null ? y.candRemote() : null));
-    }
-
-    //RTT 合并:两端都有取平均,仅一端取该端,均无则 null
-    private static Integer mergeRtt(DirSnap x, DirSnap y)
-    {
-        if (x != null && x.rtt() != null && y != null && y.rtt() != null)
-            return (x.rtt() + y.rtt()) / 2;
-        if (x != null && x.rtt() != null)
-            return x.rtt();
-        if (y != null && y.rtt() != null)
-            return y.rtt();
-        return null;
-    }
-
-    //取更差的链路层级(relay>wan>lan),null 视为无信息不参与
-    private static String worstNetPath(String x, String y)
-    {
-        if (x == null) return y;
-        if (y == null) return x;
-        return NET_PATH_RANK.getOrDefault(x, 0) >= NET_PATH_RANK.getOrDefault(y, 0) ? x : y;
-    }
-
-    //方向速率的镜像回退:主观测缺省(null)时取对端的等价读数(我发=对端收),仍缺省则保持 null
-    private static Long pickRate(Long primary, Long mirror)
-    {return primary != null ? primary : mirror;}
-
-    //可空求大:任一端缺省则取另一端,两端皆缺省才为 null(避免 0 冒充缺省)
-    private static Long maxLong(Long x, Long y)
-    {
-        if (x == null) return y;
-        if (y == null) return x;
-        return x >= y ? x : y;
     }
 
     //每分钟第 10 秒:聚合上一分钟窗口的明细(错峰,避开整分前后的上报写入)
