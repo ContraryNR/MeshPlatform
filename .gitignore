@@ -10,3 +10,6 @@ target/
 # ===== 系统文件 =====
 Thumbs.db
 .DS_Store
+
+# ===== 运行时数据 =====
+mesh.db

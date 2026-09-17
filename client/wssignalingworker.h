@@ -43,6 +43,7 @@ public slots:
         connect(wsSocket,&QWebSocket::disconnected,[this](){
             wsSocket->deleteLater();
             wsSocket=NULL;
+            emit wsDisconnected();//信令链路断开:上游据此立即停止统计上报
             emit wsError(QString::fromUtf8("与信令服务器的连接已断开"));
         });
         connect(wsSocket,&QWebSocket::errorOccurred,[this](QAbstractSocket::SocketError){
@@ -66,6 +67,7 @@ signals:
     void onJsonMsg(const QJsonObject&);
     void readySendHostName();
     void wsError(const QString& errorMsg);
+    void wsDisconnected();//信令连接断开 —— 用于从上游停止统计上报,而不是靠发送点 isValid 兜底
 };
 
 #endif // WSSIGNALINGWORKER_H

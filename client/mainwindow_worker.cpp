@@ -99,6 +99,14 @@ void MainWindow::initialSignaling()
                                               .arg(hostNum));
             getTun();
         });
+        //服务器下发的统计上报配置:一路应用到 dcmanager(权威配置),一路在状态栏留痕便于联调
+        connect(peerJsonWorker, &peerjsonworker::statsCfgReceived, dcManager, &dcmanager::applyStatsConfig);
+        connect(peerJsonWorker, &peerjsonworker::statsCfgReceived, this, [this](const QJsonObject& cfg){
+            ui->stateMsg->appendPlainText(QString("服务器下发统计上报配置: %1")
+                .arg(QString::fromUtf8(QJsonDocument(cfg).toJson(QJsonDocument::Compact))));
+        });
+        //信令断开:立即停止统计上报(从上游停止采集,而不是靠发送点的 isValid 兜底丢弃)
+        connect(clientNetWorker, &wssignalingworker::wsDisconnected, dcManager, &dcmanager::onSignalingDown);
         connect(dcManager, &dcmanager::transferWorkerMsg, peerJsonWorker, &peerjsonworker::onInternalMsg);
         connect(peerJsonWorker, &peerjsonworker::sendToNetWorker, clientNetWorker, &wssignalingworker::sendMsg);
         connect(clientNetWorker, &wssignalingworker::readySendHostName, peerJsonWorker, &peerjsonworker::onReadySendHostName);

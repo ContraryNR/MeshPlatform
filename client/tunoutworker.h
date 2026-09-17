@@ -53,7 +53,7 @@ public slots:
                             packet = functionLoader->ReceivePacket(session, &packetSize);
                             worker->newEventNow=true;//通知QTimer中断处理积压数据包
                             //根据packet*是否非空判断出(极)短时间内是否还有下个packet待invoke异步投递发送事件
-                            QMetaObject::invokeMethod(worker,"sendBinaryMsg",Qt::QueuedConnection,Q_ARG(const QByteArray&,msg),Q_ARG(bool,packet!=nullptr));
+                            QMetaObject::invokeMethod(worker,"sendTunMsg",Qt::QueuedConnection,Q_ARG(const QByteArray&,msg),Q_ARG(bool,packet!=nullptr));
                         }
                         catch (const std::exception& e)
                         {

@@ -1,0 +1,73 @@
+﻿
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+
+ :: Spring Boot ::                (v4.1.1)
+
+2026-09-14T17:33:06.465+08:00  INFO 5148 --- [mesh-backend] [           main] c.c.mesh.MeshBackendApplication          : Starting MeshBackendApplication using Java 26.0.2.1 with PID 5148 (E:\Code\MeshPlatform\server\target\classes started by contr in E:\Code\MeshPlatform\server)
+2026-09-14T17:33:06.467+08:00  INFO 5148 --- [mesh-backend] [           main] c.c.mesh.MeshBackendApplication          : No active profile set, falling back to 1 default profile: "default"
+2026-09-14T17:33:06.962+08:00  INFO 5148 --- [mesh-backend] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data JPA repositories in DEFAULT mode.
+2026-09-14T17:33:07.007+08:00  INFO 5148 --- [mesh-backend] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 37 ms. Found 2 JPA repository interfaces.
+2026-09-14T17:33:07.402+08:00  INFO 5148 --- [mesh-backend] [           main] o.s.boot.tomcat.TomcatWebServer          : Tomcat initialized with port 8080 (http)
+2026-09-14T17:33:07.417+08:00  INFO 5148 --- [mesh-backend] [           main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
+2026-09-14T17:33:07.417+08:00  INFO 5148 --- [mesh-backend] [           main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/11.0.24]
+2026-09-14T17:33:07.464+08:00  INFO 5148 --- [mesh-backend] [           main] b.w.c.s.WebApplicationContextInitializer : Root WebApplicationContext: initialization completed in 947 ms
+2026-09-14T17:33:07.613+08:00  INFO 5148 --- [mesh-backend] [           main] org.hibernate.orm.jpa                    : HHH008540: Processing PersistenceUnitInfo [name: default]
+2026-09-14T17:33:07.675+08:00  INFO 5148 --- [mesh-backend] [           main] org.hibernate.orm.core                   : HHH000001: Hibernate ORM core version 7.4.5.Final
+2026-09-14T17:33:08.043+08:00  INFO 5148 --- [mesh-backend] [           main] o.s.o.j.p.SpringPersistenceUnitInfo      : No LoadTimeWeaver setup: ignoring JPA class transformer
+2026-09-14T17:33:08.069+08:00  INFO 5148 --- [mesh-backend] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Starting...
+WARNING: A restricted method in java.lang.System has been called
+WARNING: java.lang.System::load has been called by org.sqlite.SQLiteJDBCLoader in an unnamed module (file:/C:/Users/contr/.m2/repository/org/xerial/sqlite-jdbc/3.50.3.0/sqlite-jdbc-3.50.3.0.jar)
+WARNING: Use --enable-native-access=ALL-UNNAMED to avoid a warning for callers in this module
+WARNING: Restricted methods will be blocked in a future release unless native access is enabled
+
+2026-09-14T17:33:08.161+08:00  INFO 5148 --- [mesh-backend] [           main] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Added connection org.sqlite.jdbc4.JDBC4Connection@45c423b3
+2026-09-14T17:33:08.163+08:00  INFO 5148 --- [mesh-backend] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Start completed.
+2026-09-14T17:33:08.206+08:00  INFO 5148 --- [mesh-backend] [           main] org.hibernate.orm.connections.pooling    : HHH10001005: Database info:
+	Database JDBC URL [jdbc:sqlite:mesh.db]
+	Database driver: SQLite JDBC
+	Database dialect: SQLiteDialect
+	Database version: 3.50.3
+	Default catalog/schema: undefined/undefined
+	Autocommit mode: undefined/unknown
+	Isolation level: SERIALIZABLE [default SERIALIZABLE]
+	JDBC fetch size: none
+	Pool: DataSourceConnectionProvider
+	Minimum pool size: undefined/unknown
+	Maximum pool size: undefined/unknown
+2026-09-14T17:33:08.849+08:00  INFO 5148 --- [mesh-backend] [           main] org.hibernate.orm.core                   : HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+2026-09-14T17:33:08.932+08:00  INFO 5148 --- [mesh-backend] [           main] j.LocalContainerEntityManagerFactoryBean : Initialized JPA EntityManagerFactory for persistence unit 'default'
+2026-09-14T17:33:08.999+08:00  INFO 5148 --- [mesh-backend] [           main] o.s.d.j.r.query.QueryEnhancerFactories   : Hibernate is in classpath; If applicable, HQL parser will be used.
+2026-09-14T17:33:09.809+08:00  WARN 5148 --- [mesh-backend] [           main] JpaBaseConfiguration$JpaWebConfiguration : spring.jpa.open-in-view is enabled by default. Therefore, database queries may be performed during view rendering. Explicitly configure spring.jpa.open-in-view to disable this warning
+2026-09-14T17:33:09.820+08:00  INFO 5148 --- [mesh-backend] [           main] o.s.b.w.a.WelcomePageHandlerMapping      : Adding welcome page: class path resource [static/index.html]
+2026-09-14T17:33:10.003+08:00  INFO 5148 --- [mesh-backend] [           main] o.s.boot.tomcat.TomcatWebServer          : Tomcat started on port 8080 (http) with context path '/'
+2026-09-14T17:33:10.009+08:00  INFO 5148 --- [mesh-backend] [           main] c.c.mesh.MeshBackendApplication          : Started MeshBackendApplication in 3.894 seconds (process running for 4.197)
+2026-09-14T17:33:24.933+08:00  INFO 5148 --- [mesh-backend] [nio-8080-exec-3] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring DispatcherServlet 'dispatcherServlet'
+2026-09-14T17:33:24.934+08:00  INFO 5148 --- [mesh-backend] [nio-8080-exec-3] o.s.web.servlet.DispatcherServlet        : Initializing Servlet 'dispatcherServlet'
+2026-09-14T17:33:24.936+08:00  INFO 5148 --- [mesh-backend] [nio-8080-exec-3] o.s.web.servlet.DispatcherServlet        : Completed initialization in 2 ms
+2026-09-14T17:33:31.767+08:00  INFO 5148 --- [mesh-backend] [nio-8080-exec-2] c.c.mesh.SignalingWebSocketHandler       : [WS] 连接建立: 2210f4d8-e096-4a91-bf30-1242ae5ffe3c
+2026-09-14T17:33:31.798+08:00  INFO 5148 --- [mesh-backend] [nio-8080-exec-2] c.c.mesh.SignalingWebSocketHandler       : [WS] sim-a 注册为 hostNum=248
+2026-09-14T17:33:31.801+08:00  INFO 5148 --- [mesh-backend] [nio-8080-exec-4] c.c.mesh.SignalingWebSocketHandler       : [WS] 连接建立: 3842903d-4484-4f67-bbc5-db6202d3a329
+2026-09-14T17:33:31.802+08:00  INFO 5148 --- [mesh-backend] [nio-8080-exec-4] c.c.mesh.SignalingWebSocketHandler       : [WS] sim-b 注册为 hostNum=183
+2026-09-14T17:33:33.071+08:00  INFO 5148 --- [mesh-backend] [nio-8080-exec-8] com.contrarynr.mesh.StatsService         : [Stats] 节点 hostNum=183 下线,快照已清理
+2026-09-14T17:33:33.072+08:00  INFO 5148 --- [mesh-backend] [nio-8080-exec-7] com.contrarynr.mesh.StatsService         : [Stats] 节点 hostNum=248 下线,快照已清理
+2026-09-14T17:33:33.073+08:00  INFO 5148 --- [mesh-backend] [nio-8080-exec-8] c.c.mesh.SignalingWebSocketHandler       : [WS] 连接关闭: 3842903d-4484-4f67-bbc5-db6202d3a329 (CloseStatus[code=1006, reason=null])
+2026-09-14T17:33:33.073+08:00  INFO 5148 --- [mesh-backend] [nio-8080-exec-7] c.c.mesh.SignalingWebSocketHandler       : [WS] 连接关闭: 2210f4d8-e096-4a91-bf30-1242ae5ffe3c (CloseStatus[code=1006, reason=Connection reset])
+2026-09-14T17:34:10.308+08:00  INFO 5148 --- [mesh-backend] [   scheduling-1] com.contrarynr.mesh.StatsService         : [Stats] 聚合窗口 2026-09-14T09:33:00Z 完成,3 条通道
+2026-09-14T17:34:12.088+08:00  INFO 5148 --- [mesh-backend] [nio-8080-exec-9] c.c.mesh.SignalingWebSocketHandler       : [WS] 连接建立: fada84fa-6ad2-4c31-baa0-f525b1af597c
+2026-09-14T17:34:12.088+08:00  INFO 5148 --- [mesh-backend] [nio-8080-exec-9] c.c.mesh.SignalingWebSocketHandler       : [WS] sim-a 注册为 hostNum=249
+2026-09-14T17:34:12.105+08:00  INFO 5148 --- [mesh-backend] [io-8080-exec-10] c.c.mesh.SignalingWebSocketHandler       : [WS] 连接建立: 756ff9c5-02c5-47b6-802e-e567464449b6
+2026-09-14T17:34:12.106+08:00  INFO 5148 --- [mesh-backend] [io-8080-exec-10] c.c.mesh.SignalingWebSocketHandler       : [WS] sim-b 注册为 hostNum=184
+2026-09-14T17:34:13.168+08:00  INFO 5148 --- [mesh-backend] [nio-8080-exec-2] c.c.mesh.SignalingWebSocketHandler       : [WS] 连接建立: 9306d4fd-9ba8-40ca-9089-bd1b21d2afb3
+2026-09-14T17:34:13.171+08:00  INFO 5148 --- [mesh-backend] [nio-8080-exec-2] c.c.mesh.SignalingWebSocketHandler       : [WS] sim-c 注册为 hostNum=155
+2026-09-14T17:34:14.205+08:00  INFO 5148 --- [mesh-backend] [nio-8080-exec-6] com.contrarynr.mesh.StatsService         : [Stats] 节点 hostNum=155 下线,快照已清理
+2026-09-14T17:34:14.205+08:00  INFO 5148 --- [mesh-backend] [nio-8080-exec-6] c.c.mesh.SignalingWebSocketHandler       : [WS] 连接关闭: 9306d4fd-9ba8-40ca-9089-bd1b21d2afb3 (CloseStatus[code=1000, reason=null])
+2026-09-14T17:34:14.206+08:00  INFO 5148 --- [mesh-backend] [nio-8080-exec-5] com.contrarynr.mesh.StatsService         : [Stats] 节点 hostNum=249 下线,快照已清理
+2026-09-14T17:34:14.206+08:00  INFO 5148 --- [mesh-backend] [nio-8080-exec-5] c.c.mesh.SignalingWebSocketHandler       : [WS] 连接关闭: fada84fa-6ad2-4c31-baa0-f525b1af597c (CloseStatus[code=1006, reason=Connection reset])
+2026-09-14T17:34:14.206+08:00  INFO 5148 --- [mesh-backend] [nio-8080-exec-8] com.contrarynr.mesh.StatsService         : [Stats] 节点 hostNum=184 下线,快照已清理
+2026-09-14T17:34:14.206+08:00  INFO 5148 --- [mesh-backend] [nio-8080-exec-8] c.c.mesh.SignalingWebSocketHandler       : [WS] 连接关闭: 756ff9c5-02c5-47b6-802e-e567464449b6 (CloseStatus[code=1006, reason=Connection reset])
+2026-09-14T17:35:10.054+08:00  INFO 5148 --- [mesh-backend] [   scheduling-1] com.contrarynr.mesh.StatsService         : [Stats] 聚合窗口 2026-09-14T09:34:00Z 完成,3 条通道

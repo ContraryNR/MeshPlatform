@@ -1,0 +1,159 @@
+/* MeshPlatform 管理页 —— 深色主题,零依赖 */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: #0f172a;
+  color: #e2e8f0;
+  font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- 头部 ---------- */
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 24px;
+  background: #111c33;
+  border-bottom: 1px solid #1e293b;
+}
+header h1 { font-size: 18px; font-weight: 600; }
+.header-right { display: flex; align-items: center; gap: 16px; font-size: 13px; color: #94a3b8; }
+#node-count { color: #60a5fa; font-weight: 600; }
+
+.state-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  display: inline-block;
+}
+.state-dot.online { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
+.state-dot.offline { background: #475569; }
+
+/* ---------- 主区:拓扑 + 详情 ---------- */
+main {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 16px;
+  padding: 16px 24px;
+  flex: 1;
+}
+.topo-panel {
+  background: #111c33;
+  border: 1px solid #1e293b;
+  border-radius: 10px;
+  padding: 8px;
+  position: relative;
+}
+#topo { width: 100%; height: auto; display: block; }
+
+.legend {
+  display: flex; gap: 16px;
+  padding: 8px 12px;
+  font-size: 12px; color: #94a3b8;
+}
+.legend-item { display: flex; align-items: center; gap: 6px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+
+/* SVG 元素 */
+.node circle {
+  fill: #2563eb; stroke: #1d4ed8; stroke-width: 2;
+  cursor: pointer;
+  transition: stroke 0.15s;
+}
+.node:hover circle { stroke: #93c5fd; }
+.node.selected circle { stroke: #fbbf24; stroke-width: 3; }
+.node-num { fill: #fff; font-size: 15px; font-weight: 600; pointer-events: none; }
+.node-name { fill: #93c5fd; font-size: 13px; pointer-events: none; }
+.edge-label {
+  font-size: 12px; font-weight: 600;
+  paint-order: stroke;
+  stroke: #0f172a; stroke-width: 4px; stroke-linejoin: round;
+}
+.empty-text { fill: #475569; font-size: 15px; }
+
+/* ---------- 详情面板 ---------- */
+.detail-panel {
+  background: #111c33;
+  border: 1px solid #1e293b;
+  border-radius: 10px;
+  padding: 16px;
+  overflow-y: auto;
+  max-height: 640px;
+}
+.detail-panel h2, .table-panel h2 { font-size: 14px; font-weight: 600; color: #94a3b8; margin-bottom: 12px; }
+.detail-body { font-size: 13px; }
+
+.kv { display: flex; justify-content: space-between; padding: 3px 0; }
+.kv-k { color: #94a3b8; }
+.kv-v { color: #e2e8f0; font-weight: 500; text-align: right; }
+
+.edge-card {
+  background: #16213a;
+  border: 1px solid #24324d;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-top: 10px;
+}
+.edge-card .kv:first-child .kv-v { color: #60a5fa; }
+
+.divider { border-top: 1px solid #24324d; margin: 8px 0 6px; }
+.ch-line { display: flex; align-items: baseline; gap: 8px; padding: 2px 0; font-size: 12px; flex-wrap: wrap; }
+.ch-name { color: #94a3b8; flex: none; }
+
+/* ---------- 质量表格 ---------- */
+.table-panel { padding: 0 24px 24px; }
+.table-panel h2 { margin: 0 0 12px; }
+#edge-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #111c33;
+  border: 1px solid #1e293b;
+  border-radius: 10px;
+  overflow: hidden;
+  font-size: 13px;
+}
+#edge-table th {
+  background: #16213a;
+  color: #94a3b8;
+  font-weight: 600;
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid #1e293b;
+}
+#edge-table td { padding: 8px 12px; border-bottom: 1px solid #1a2540; color: #cbd5e1; }
+#edge-table tr:last-child td { border-bottom: none; }
+#edge-table tr:hover td { background: #16213a; }
+
+.empty-hint { color: #475569; font-size: 13px; padding: 12px; text-align: center; }
+
+/* ---------- 上报配置 ---------- */
+.config-panel { padding: 0 24px 24px; }
+.config-panel h2 { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+.config-note { color: #94a3b8; font-size: 12px; line-height: 1.6; margin-bottom: 14px; }
+.config-form { display: flex; flex-direction: column; gap: 10px; font-size: 13px; color: #cbd5e1; }
+.cfg-item { display: flex; align-items: center; gap: 8px; }
+.cfg-wide { flex-wrap: wrap; }
+.cfg-hint { color: #64748b; font-size: 11px; }
+.cfg-choices { display: inline-flex; gap: 12px; flex-wrap: wrap; }
+.cfg-choice { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.cfg-choice input, #cfg-enabled { accent-color: #2563eb; }
+.cfg-admin input[type="text"], .cfg-admin input[type="password"] {
+  background: #0b1220; border: 1px solid #24324d; color: #cbd5e1;
+  padding: 4px 8px; border-radius: 4px; font-size: 12px; width: 130px;
+}
+.cfg-admin input#cfg-interval, .cfg-item input#cfg-interval {
+  background: #0b1220; border: 1px solid #24324d; color: #cbd5e1;
+  padding: 4px 8px; border-radius: 4px; font-size: 12px; width: 90px;
+}
+.cfg-actions { display: flex; align-items: center; gap: 12px; }
+.cfg-actions button {
+  background: #2563eb; border: 0; color: #fff; padding: 6px 18px;
+  border-radius: 4px; cursor: pointer; font-size: 13px;
+}
+.cfg-actions button:hover { background: #1d4ed8; }
+.cfg-msg { font-size: 12px; color: #94a3b8; }
+
+@media (max-width: 900px) {
+  main { grid-template-columns: 1fr; }
+}

@@ -12,6 +12,7 @@
 #include <QCheckBox>
 #include <QLabel>
 #include <QGroupBox>
+#include <QComboBox>
 #include <QHash>
 #include <QVector>
 
@@ -60,6 +61,7 @@ public:
         freeSizeSpinBox->setValue(currentFreeSize);
         freeSizeSpinBox->setSuffix(" 字节");
         paramLayout->addRow("freeSize:", freeSizeSpinBox);
+        //统计上报的周期与内容由 server 统一下发(见 reportconfig.h),客户端不再提供本地调控入口
 
         mainLayout->addWidget(paramGroup);
 

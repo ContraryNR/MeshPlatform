@@ -18,6 +18,8 @@
 #include "filedownloader.h"
 #include "videodecoder.h"
 #include "audiodecoder.h"
+#include "util.h"//netPath 网段判定(isInLocalSubnet)
+#include "reportconfig.h"//统计上报配置(server 下发)
 
 //全局类型标识(统一用于: 二进制消息协议首字节 / worker索引 / purpose参数 / 协商子类型)
 #define TYPE_NEGOTIATE  0   //协商(文件/音频/视频请求与响应)
@@ -54,6 +56,8 @@ public://Flags
     isShuttingDown{false},isBufferBusy{false},newEventNow{false},isVideoCalling{false},isAudioCalling{false};
     bool isOfferER,remoteDescSet{false};int peerHostNum,index;
     std::chrono::time_point<std::chrono::steady_clock> lastUpdateTime;
+    qint64 lastStatsMs{0};//上次统计采集时刻(steady_clock毫秒),用于计算真实采集周期elapsed
+    reportconfig reportCfg;//本通道的上报配置(server 下发,由 dcmanager 经 QueuedConnection 投递)
     int audioCallSampleRate{0};
     int audioCallChannelCount{0};
     QVector<QPair<QString,QString>> pendingCandidates;
@@ -71,6 +75,7 @@ public://Sources
 public://QTimer
     QTimer* sendTimer{NULL},*detectTimer{NULL};
     QTimer* processPendingTimer{NULL};
+    QTimer* statsTimer{NULL};//统计自报定时器:由 dcmanager 经 applyReportConfig 按服务器下发的配置创建/启停
 
 public://Buffer
     QMutex* inboundBufferMutex{NULL};
@@ -744,8 +749,141 @@ public slots://settingSlot
     void updateSettings(int bSize, int fSize)
     {busySize = bSize;
     freeSize = fSize;}
+
+public slots://statsSlot
+    //pc+dc状态包装到Json->statsCollected信号(本worker线程内的statsTimer直调,无跨线程调用)
+    //产出内容完全由 reportCfg 决定:fields 为空即裸边,只报 {peer,ch}
+    //缺省语义:未配置的字段组根本不写这个 key,由 server 依"所有质量字段皆缺省"判定裸边
+    QJsonObject collectStats()
+    {
+        if(isShuttingDown||!pc||!dc)
+            return {};
+        if(!reportCfg.enabled)
+            return {};//未下发配置(或已被 server 关闭):不产生任何数据
+        QJsonObject edge;
+        edge["peer"]=peerHostNum;
+        edge["ch"]=index;//worker index:0主通道/1文件/2音频/3视频
+        if(reportCfg.bare())
+            return edge;//裸边:只表达拓扑存在性
+        qint64 nowMs=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+        if(lastStatsMs>0)
+            edge["elapsed"]=nowMs-lastStatsMs;//真实采集周期(ms):供manager差分速率,不依赖定时器名义间隔
+        lastStatsMs=nowMs;
+        if(reportCfg.hasField("rtt"))
+            if(auto rtt=pc->rtt())
+                edge["rtt"]=static_cast<int>(rtt->count());
+        if(reportCfg.hasField("traffic"))
+        {
+            edge["bytesSent"]=static_cast<qint64>(pc->bytesSent());
+            edge["bytesReceived"]=static_cast<qint64>(pc->bytesReceived());
+        }
+        if(reportCfg.hasField("buffered"))
+            edge["buffered"]=static_cast<qint64>(dc->bufferedAmount());
+        if(reportCfg.hasField("state"))
+        {
+            switch(pc->state())
+            {
+                case rtc::PeerConnection::State::New:
+                 edge["state"]="new";break;
+                case rtc::PeerConnection::State::Connecting:
+                 edge["state"]="connecting";break;
+                case rtc::PeerConnection::State::Connected:
+                 edge["state"]="connected";break;
+                case rtc::PeerConnection::State::Disconnected:
+                 edge["state"]="disconnected";break;
+                case rtc::PeerConnection::State::Failed:
+                 edge["state"]="failed";break;
+                case rtc::PeerConnection::State::Closed:
+                 edge["state"]="closed";break;
+            }
+        }
+        if(reportCfg.hasField("ice"))
+        {
+            switch(pc->iceState())
+            {
+                case rtc::PeerConnection::IceState::New: edge["iceState"]="new";break;
+                case rtc::PeerConnection::IceState::Checking: edge["iceState"]="checking";break;
+                case rtc::PeerConnection::IceState::Connected: edge["iceState"]="connected";break;
+                case rtc::PeerConnection::IceState::Completed: edge["iceState"]="completed";break;
+                case rtc::PeerConnection::IceState::Failed: edge["iceState"]="failed";break;
+                case rtc::PeerConnection::IceState::Disconnected: edge["iceState"]="disconnected";break;
+                case rtc::PeerConnection::IceState::Closed: edge["iceState"]="closed";break;
+            }
+        }
+        if(reportCfg.hasField("path"))
+        {
+            //链路层级判定:以"对端候选地址是否落在本机网卡网段"为准,而非候选类型
+            //(单看类型会误判:同机或同网段互通一旦选中 srflx 候选,类型就不是 host,可实际根本没走公网)
+            //relay=中继(打洞失败降级,当前无TURN不会出现,留作告警位)
+            rtc::Candidate localCandidate,remoteCandidate;
+            if(pc->getSelectedCandidatePair(&localCandidate,&remoteCandidate))
+            {
+                if(localCandidate.type()==rtc::Candidate::Type::Relayed||remoteCandidate.type()==rtc::Candidate::Type::Relayed)
+                    edge["netPath"]="relay";
+                else if(isInLocalSubnet(candidateAddress(remoteCandidate)))
+                    edge["netPath"]="lan";
+                else
+                    edge["netPath"]="wan";
+                //诊断:选中候选对的实际地址与类型 —— 用于排查"单机双开却显示公网"这类判定异常
+                edge["candLocal"]=candidateBrief(localCandidate);
+                edge["candRemote"]=candidateBrief(remoteCandidate);
+            }
+        }
+        return edge;
+    }
+    //候选地址(libdatachannel 的 address() 是 optional,未解析时返回空串)
+    static QString candidateAddress(const rtc::Candidate& c)
+    {
+        if(auto addr=c.address())
+            return QString::fromStdString(*addr);
+        return QString();
+    }
+    //候选摘要:"地址:端口/类型",类型映射 host/srflx/prflx/relay
+    static QString candidateBrief(const rtc::Candidate& c)
+    {
+        QString type="unknown";
+        switch(c.type())
+        {
+            case rtc::Candidate::Type::Host: type="host";break;
+            case rtc::Candidate::Type::ServerReflexive: type="srflx";break;
+            case rtc::Candidate::Type::PeerReflexive: type="prflx";break;
+            case rtc::Candidate::Type::Relayed: type="relay";break;
+            default: break;
+        }
+        QString addr=candidateAddress(c);
+        auto port=c.port();
+        return QString("%1:%2/%3").arg(addr.isEmpty()?QString("?"):addr)
+                                 .arg(port?QString::number(*port):QString("?")).arg(type);
+    }
+    //应用 server 下发的上报配置(由 dcmanager 经 QueuedConnection 投递,在本线程创建/启停statsTimer)
+    //开关、周期、字段全部来自配置 —— 客户端不提供本地调控入口,保证同一 edge 两端口径一致
+    void applyReportConfig(const QJsonObject& cfg)
+    {
+        reportCfg.load(cfg);
+        if(!reportCfg.enabled)
+        {
+            if(statsTimer)
+            {
+                statsTimer->stop();
+                lastStatsMs=0;//停报后重新开启时首条无elapsed,重建速率基线
+            }
+            return;
+        }
+        if(!statsTimer)
+        {
+            statsTimer=new QTimer(this);
+            connect(statsTimer,&QTimer::timeout,this,[this](){
+                QJsonObject edge=collectStats();
+                if(!edge.isEmpty())
+                    emit statsCollected(edge);
+            });
+        }
+        statsTimer->setInterval(reportCfg.intervalMs);
+        statsTimer->start();
+    }
 signals:
     void dcFinish();
+    void statsCollected(const QJsonObject&);//本worker的统计快照(推模型:worker自采自报,dcmanager聚合)
     void receiveStringMsg(int peerHostNum, const QString& msg);
     void informFileDownLoadFinish(const QString& filename,int peerHostNum);
     void transferDecodedFrame(const QImage&,int);

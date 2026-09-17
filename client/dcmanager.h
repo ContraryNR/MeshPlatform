@@ -2,8 +2,10 @@
 #define DCMANAGER_H
 
 #include <QJsonArray>
+#include <QJsonObject>
 #include <QDebug>
 #include "dcworker.h"
+#include "reportconfig.h"
 
 #define maxWorkerGroupSize 4
 //worker index: 0=>主通道(TUN/字符串/协商) 1=>文件传输 2=>音频(暂未实现) 3=>视频通话
@@ -20,6 +22,10 @@ public:
     //worker(answerER)仅在sdp(offer)到来时创建=>若candidate先于sdp到达则需等待worker创建完毕并setRemoteSdp后方可addCandidate
     std::vector<rtc::binary>& inboundBuffer;
     QTimer* basicTimer{nullptr};
+    QTimer* statsTimer{nullptr};
+    QHash<QPair<int,int>,QPair<qint64,qint64>> lastBytes;//(hostNum,通道)->上次上报的(bytesSent,bytesReceived)累计基线,用于差分出速率
+    reportconfig reportCfg;//统计上报配置:开关/周期/通道/字段全部由 server 经 statsCfg 下发决定
+    QJsonArray pendingEdges;//worker推来的边缓冲(仅manager线程访问),statsTimer按配置周期打包flush
     QMutex* mutex{NULL};
     int busySize=104857;
     int freeSize=32768;
@@ -42,6 +48,27 @@ public:
                     }
             emit workerStatePulse(ibs,obs,pr,allState);
         });        
+        //统计上报flush定时器:worker经statsCollected信号自采自推(推模型,无跨线程方法调用),
+        //边缓存在pendingEdges,此处按配置周期打包走transferWorkerMsg信令链路发出
+        //周期与开关都来自 server 下发的 reportCfg,未下发前不启动(见 applyStatsConfig)
+        if(onlineMode)
+        {
+            statsTimer=new QTimer(this);
+            statsTimer->setInterval(reportCfg.intervalMs);
+            connect(statsTimer,&QTimer::timeout,this,[this]()
+                {
+                    if(!reportCfg.enabled)
+                        return;
+                    //空edges也上报:作为节点在线心跳(拓扑需要展示尚无连接的孤立节点)
+                    QJsonObject statsJson;
+                    statsJson["type"]="stats";
+                    statsJson["target"]=1;
+                    statsJson["edges"]=pendingEdges;
+                    pendingEdges=QJsonArray();
+                    emit transferWorkerMsg(statsJson);
+                }
+            );
+        }
     }
     dcworker* addPeer(const QString& peerHostName,int peerHostNum,bool isOfferER)
     {
@@ -79,6 +106,8 @@ public:
         connect(worker,&dcworker::transferRequest,this,[this](uint8_t msgType,uint64_t requestTime,const QJsonObject& callParams,void* voidDCWorker){
             emit transferRequest(msgType,requestTime,callParams,voidDCWorker);
         });
+        //worker自报统计->manager缓冲(跨线程自动连接即Queued,本槽在manager线程执行)
+        connect(worker,&dcworker::statsCollected,this,&dcmanager::onStatsCollected);
         connect(worker,&dcworker::returnRequestResult,this,[this](uint64_t requestTime,bool result){
             emit returnRequestResult(requestTime,result);
         });
@@ -101,6 +130,10 @@ public:
         QThread* trd=new QThread;
         worker->moveToThread(trd);
         QMetaObject::invokeMethod(worker,"initialPendingProcessTimer",Qt::QueuedConnection);
+        //按当前上报配置决定新worker是否开启统计自报(配置整体下发,worker 据此决定周期与产出字段)
+        if(shouldReportStats(worker))
+            QMetaObject::invokeMethod(worker,"applyReportConfig",Qt::QueuedConnection,
+                Q_ARG(QJsonObject,reportCfgSnapshot()));
         connect(worker,&dcworker::dcFinish,this,[worker,trd,peerHostNum,this,index](){
             trd->quit();
             trd->wait();
@@ -109,6 +142,7 @@ public:
                 ipRoute[peerHostNum].removeAll(worker);
             trd->deleteLater();
             QString peerName = nameRoute.value(peerHostNum);
+            lastBytes.remove(qMakePair(peerHostNum,index));//各通道各自清基线
             if(index==0)
             {
                 ipRoute.remove(peerHostNum);
@@ -221,21 +255,109 @@ public slots:
                 workers[workerIndex]->isAudioCalling = calling;
         }
     }
+    //当前配置下该worker是否需要统计自报(离线模式一律不报)
+    bool shouldReportStats(dcworker* worker)
+    {return worker&&onlineMode&&reportCfg.enabled;}
+public slots://statsSlot
+    //worker统计到达:差分速率后入缓冲(等待statsTimer打包flush)
+    void onStatsCollected(const QJsonObject& msg)
+    {
+        QJsonObject edge=msg;
+        //仅当本次配置要求上报流量字段时才做差分(未配置 traffic 时 edge 里没有累计字节数)
+        if(edge.contains("bytesSent")&&edge.contains("bytesReceived"))
+        {
+            //bytesSent/bytesReceived为累计值,worker携带真实采集周期elapsed(ms)=>据此差分出速率(B/s),key为(hostNum,通道)
+            qint64 sent=edge["bytesSent"].toInteger(),received=edge["bytesReceived"].toInteger();
+            QPair<int,int> key(edge["peer"].toInt(),edge["ch"].toInt());
+            QPair<qint64,qint64> base=lastBytes.value(key,qMakePair((qint64)-1,(qint64)-1));
+            if(base.first>=0&&sent>=base.first&&received>=base.second&&edge.contains("elapsed"))
+            {
+                qint64 elapsed=edge["elapsed"].toInteger();
+                if(elapsed>0)
+                {
+                    edge["up"]=(sent-base.first)*1000/elapsed;
+                    edge["down"]=(received-base.second)*1000/elapsed;
+                }
+            }
+            lastBytes.insert(key,qMakePair(sent,received));
+        }
+        pendingEdges.append(edge);
+    }
+    //应用 server 下发的统计上报配置(由 peerjsonworker 在 JW 线程经 QueuedConnection 投递)
+    //开关/周期/通道/字段全部以 server 为准 —— 客户端设置里不再有本地调控入口
+    void applyStatsConfig(const QJsonObject& cfg)
+    {
+        reportCfg.load(cfg);
+        applyReportConfigLocal();
+    }
+    //信令连接断开:立即关闭上报
+        //从上游停掉采集行为,而不是让上报继续跑、靠发送点的 wsSocket->isValid() 兜底丢弃
+    void onSignalingDown()
+    {
+        reportCfg.disable();
+        applyReportConfigLocal();
+    }
+    //把当前配置落到本类定时器与各worker(仅DC线程调用)
+    void applyReportConfigLocal()
+    {
+        if(statsTimer)//离线模式无statsTimer(无处上报)
+        {
+            if(reportCfg.enabled)
+            {
+                statsTimer->setInterval(reportCfg.intervalMs);
+                statsTimer->start();
+            }
+            else
+            {
+                statsTimer->stop();
+                pendingEdges=QJsonArray();
+                lastBytes.clear();//停报时清空速率基线,重新开启后首条重建基线
+            }
+        }
+        QJsonObject cfg=reportCfgSnapshot();
+        for(auto [hostNum,workerGroup] : ipRoute.asKeyValueRange())
+            for(dcworker* worker:workerGroup)
+                if(worker)
+                    QMetaObject::invokeMethod(worker,"applyReportConfig",Qt::QueuedConnection,
+                        Q_ARG(QJsonObject,cfg));
+    }
+    //配置的JSON快照(下发给worker;保持"结构化JSON贯穿"的传递风格,免去自定义元类型注册)
+    QJsonObject reportCfgSnapshot()
+    {
+        QJsonObject cfg;
+        cfg["enabled"]=reportCfg.enabled;
+        cfg["interval"]=reportCfg.intervalMs;
+        QJsonArray flds;
+        for(const QString& f : reportCfg.fields)
+            flds.append(f);
+        cfg["fields"]=flds;
+        return cfg;
+    }
 public slots://timerSlot
     void startTimer()
     {
         basicTimer->start();
+        if(statsTimer)//离线模式不创建statsTimer(无处上报),空指针防护
+            statsTimer->start();
     }
     void stopTimer()
     {
         if(basicTimer->isActive())
             basicTimer->stop();
+        if(statsTimer&&statsTimer->isActive())
+            statsTimer->stop();
     }
     void cleanQOBJ()
     {
         if(basicTimer->isActive())
             basicTimer->stop();
         basicTimer->deleteLater();
+        if(statsTimer)
+        {
+            if(statsTimer->isActive())
+                statsTimer->stop();
+            statsTimer->deleteLater();
+        }
     }
 
 signals:

@@ -65,6 +65,9 @@ public slots:
         }
         else if(type=="candidate")
             emit goSetCandidate(msg["candidateItem"].toString(),msg["candidateMid"].toString(),msg["source"].toInt(),msg["index"].toInt());
+        //服务器下发的统计上报配置(server 为唯一配置源:注册时下发一次,运行时改配置后再下发)
+        else if(type=="statsCfg")
+            emit statsCfgReceived(msg);//整包透传:开关/周期/通道/字段全部以 server 为准
     }
 signals:
     void sendToNetWorker(const QJsonObject&);
@@ -73,6 +76,7 @@ signals:
     void goSetAnswer(const QString& sdp,int peerHostNum,int);
     void goSetCandidate(const QString&,const QString&,int,int);
     void hostNumAssigned(int);
+    void statsCfgReceived(const QJsonObject& cfg);//服务器下发的统计上报配置(整包:开关/周期/通道/字段)
 };
 
 #endif // PEERJSONWORKER_H

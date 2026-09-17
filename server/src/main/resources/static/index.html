@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MeshPlatform 网络管理</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>MeshPlatform 网络管理</h1>
+  <div class="header-right">
+    <span id="node-count">在线节点 0</span>
+    <span id="conn-state" class="state-dot offline" title="SSE 连接状态"></span>
+    <span id="update-time">等待数据…</span>
+  </div>
+</header>
+
+<main>
+  <section class="topo-panel">
+    <svg id="topo" viewBox="0 0 800 620" preserveAspectRatio="xMidYMid meet"></svg>
+    <div class="legend">
+      <span class="legend-item"><i class="dot" style="background:#22c55e"></i>RTT &lt; 100ms</span>
+      <span class="legend-item"><i class="dot" style="background:#f59e0b"></i>100 ~ 300ms</span>
+      <span class="legend-item"><i class="dot" style="background:#ef4444"></i>&gt; 300ms</span>
+      <span class="legend-item"><i class="dot" style="background:#6b7280"></i>无数据</span>
+    </div>
+  </section>
+
+  <aside class="detail-panel">
+    <h2>节点详情</h2>
+    <div id="detail-body" class="detail-body">点击拓扑中的节点查看详情</div>
+  </aside>
+</main>
+
+<section class="table-panel">
+  <h2>连接质量</h2>
+  <table id="edge-table">
+    <thead>
+      <tr>
+        <th>主机 A</th><th>主机 B</th><th>通道</th><th>RTT</th>
+        <th>A → B</th><th>B → A</th><th>发送积压</th>
+        <th>ICE 状态</th><th>路径</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+  <div id="empty-hint" class="empty-hint">暂无连接数据</div>
+</section>
+
+<section class="config-panel">
+  <h2>上报配置</h2>
+  <p class="config-note">
+    这些参数由 server 统一下发到各客户端(注册时下发一次,改动后立即重新下发),
+    客户端本地不再提供调控入口 —— 保证同一条边两端的上报口径一致。
+  </p>
+  <form id="config-form" class="config-form">
+    <label class="cfg-item"><input type="checkbox" id="cfg-enabled"> 启用上报</label>
+    <label class="cfg-item">周期(ms)
+      <input type="number" id="cfg-interval" min="1000" max="60000" step="500" value="5000">
+    </label>
+    <div class="cfg-item cfg-wide">字段<span class="cfg-hint">(不勾选 = 只报边的存在性)</span>
+      <span id="cfg-fields" class="cfg-choices"></span></div>
+    <div class="cfg-item cfg-wide cfg-admin">
+      管理员
+      <input type="text" id="cfg-user" placeholder="用户名" autocomplete="username">
+      <input type="password" id="cfg-pass" placeholder="密码" autocomplete="current-password">
+      <span class="cfg-hint">仅改配置需要身份;查看拓扑无需登录</span>
+    </div>
+    <div class="cfg-actions">
+      <button type="submit">应用并下发</button>
+      <span id="cfg-msg" class="cfg-msg"></span>
+    </div>
+  </form>
+</section>
+
+<script src="app.js"></script>
+</body>
+</html>
