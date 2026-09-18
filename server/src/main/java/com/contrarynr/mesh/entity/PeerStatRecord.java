@@ -30,4 +30,12 @@ public class PeerStatRecord
     private String iceState;    //ICE 状态
     private String netPath;     //链路层级: lan局域网直连/wan公网直连/relay中继(打洞失败降级)
     private long ts;
+    //JPA 要求无参构造
+    public PeerStatRecord() {}
+    //含全部成员的构造:摄入项落库时一次建好,免去一连串 setter();缺省字段用 null 直接带过
+    public PeerStatRecord(int sourceHostNum, int peerHostNum, int channel, Integer rtt, Long up,
+        Long down, Long buffered, String pcState, String iceState, String netPath, long ts)
+    {this.sourceHostNum = sourceHostNum;this.peerHostNum = peerHostNum;this.channel = channel;
+        this.rtt = rtt;this.up = up;this.down = down;this.buffered = buffered;
+        this.pcState = pcState;this.iceState = iceState;this.netPath = netPath;this.ts = ts;}
 }

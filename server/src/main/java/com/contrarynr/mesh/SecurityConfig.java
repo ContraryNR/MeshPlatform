@@ -1,5 +1,4 @@
 package com.contrarynr.mesh;
-
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -18,9 +17,11 @@ import org.springframework.security.web.SecurityFilterChain;
  - 只有"改上报配置"这个写接口 POST /stats/config 要求管理员身份(HTTP Basic)。
  注意 /ws 必须显式放行 —— 它被拦会直接导致 C++ 客户端连不上信令服务器、整个组网失效。
  关闭 CSRF:SSE/WebSocket/前端 fetch 都不带 token;本服务面向内网部署,写接口另有 Basic 认证兜底。*/
+
 @Configuration
 @EnableWebSecurity
-public class SecurityConfig {
+public class SecurityConfig
+{
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception
     {

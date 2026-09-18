@@ -37,6 +37,15 @@
 12. netPath 判定改为"对端候选地址是否落在本机网卡网段"(掩码前缀比较),而非候选类型:
    单看类型会把"同机/同网段互通"误判成公网(ICE 一旦选中 srflx 候选,类型就不是 host,可实际没走公网);
    同时把选中候选对摘要(candLocal/candRemote)纳入上报作为诊断依据
+13. stats 域改为 **信号/槽(sig4j) + 顶层协调者** 架构(2026-09-18,响应代码内遗留的 `Question` 注释):
+   - 新增 `statsWorker` 包收纳 stats 相关全部类;`PeerController` 归档到 `archive` 包并移除 register 测试接口
+   - 移除 `StatsConfigManager/StatsIngestService/TopologyDistributor`;`ReportConfig→statsConfig`(可变 bean)、
+     `TopologyPacker→TopologyTransformer`、`DirSnap→channelSnap`、`Edge→edgeSymbol`
+   - 新增 `StatsCoordinator`(纯接线,不处理数据,类比 MainWindow)+ `StatsMsgTranslator`(协议翻译)两个 worker;
+     TTL 作为全局单例 statsConfig 的 ttlMs(周期 × ttl-factor),供仓储/控制器统一取
+   - `configMsgPacker()`(配置类打包 JSON) + `jsonMsgBasePacker()`(信令层补 type/source/target 信封)分层
+   - `EdgeSnapRepository`:fresh/channelsOf 内联进 snapshot;write+apply 合并为 deltaUpdate;判活阈值取自 statsConfig.ttlMs()
+   - `PeerStatRecord` 增全成员构造(保留 JPA 无参),新增 `statsTool.toRecord` 落库免 setter 链
 
 ## 已完成(截至 2026-09-15)
 - MeshPlatform 项目迁移:client(C++ 必要文件)/server(Java)分目录,Git 仓库 + GitHub 公开仓库
@@ -401,6 +410,45 @@
   真 0 保留、未上报的那端不出现空对象);mesh_default_field_check.py 的缺省/真 0 三情形按端断言;
   mesh_ttl_sweep_check.py 照旧(无上报时自行摘净)。附注:未过浏览器实测(本机无可用浏览器驱动),
   前端改动为纯渲染逻辑,数据契约已由脚本覆盖。
+
+### 收尾两处 + 待决清单(2026-09-17 夜)
+1. **拓扑线的视角改为跟随选中**(用户指定的"完美"形态):选中任一节点时,连在它上面的边全部切到
+   "以该节点为 source"的视角;未选中时取 hostNum 较小端(a 端此边无数据时退到另一端)。
+   图例文案与 app.js 头注释同步。至此页面只有一种口径:线、详情、表格随同一个选中节点走。
+2. **ALLOWED_FIELDS 改为有序不可变集合**:`Collections.unmodifiableSet(new LinkedHashSet<>(List.of(...)))`。
+   它的迭代顺序就是管理页 6 个字段复选框的渲染顺序,原来用 `Set.of` 时该顺序随 JVM 的随机盐
+   每次启动都变(实测两次启动曾得到不同的顺序),页面上复选框会跳。实测两次启动
+   `allowedFields` 均为 `["rtt","traffic","buffered","state","ice","path"]`,不再跳。
+- 验证(2026-09-17 夜):编译通过;两次启动比对 allowedFields 顺序一致;mesh_ws_test2.py 与
+  mesh_default_field_check.py 全绿(这两处改动都是渲染/常量层面,不动数据契约);server 已停、端口已释放。
+- **待用户决策(未动)**:
+  1. ~~是否给 pcState 一个展示位~~ → 用户裁决:加(见下一节,已落地)。
+  2. **application.properties 侧的字段组没有白名单校验**:拼错(如 `trafic`)会静默失效 —— 下发的字段名
+     客户端不认识,那组数据永远不报且无任何报错。可选:启动时校验并 fail-fast(或 warn 后继续)。
+  3. 是否提交 git(static/ 整个目录与本轮全部改动仍未被跟踪)。
+  4. 400 的具体原因是否要进响应体(`server.error.include-message=always`,一行)。
+
+### 第三轮:pcState 展示位 + 字段组改名 + 视角沿图传播(2026-09-17 夜,用户提出)
+1. **pcState 补上展示位**(用户裁决"干脆加一栏展示 pcState"):
+   - 仓储:`DirSnap.hasAnyData()` 删除 —— pcState 有了展示位之后,它与入库判据 `hasAnyAttr()` 答案一致,
+     合并为一个判据(注释写明:两个问题现在同解,将来若出现"只入库不上图"的字段就在这里分岔)。
+   - Packer:单端对象新增 `pcState`,字段顺序与入库列一致(rtt/up/down/buffered/pcState/iceState/netPath/候选对)。
+   - 前端:质量表格新增"PC 状态"列(置于 ICE 状态左侧)、节点详情新增"PC 状态"行。
+   - 后果:只配 `pcState` 一组也不再退化成裸边 —— 该组数据现在页面上可见了。
+2. **字段组改名 `state`→`pcState`、`ice`→`iceState`**(用户:"太不具体了"):
+   - 契约要求名字四处一致:字段组名 = 报文 JSON key = DirSnap 分量 = 入库列名(PC 的报文 key 也从 state 改名)。
+   - 服务端:ReportConfig 白名单、application.properties 默认值、StatsIngestService 读键、WS 协议注释。
+   - 客户端:dcworker.h 的 hasField 与报文 key(6 个 switch 分支)、reportconfig.h 的字段组说明。
+   - **旧客户端必须重新编译**才能配合新服务端(否则 hasField 匹配不上,这两组字段不再上报)。
+   - 客户端实测:用 Qt 自带工具链(Ninja + mingw1310_64)g++ 重编译链接**通过**。
+3. **拓扑线的视角改为"沿图传播"**(用户的 Floyd 式设想):选中节点后以它为源做一次**无权 BFS**,
+   每条边取"跳数更近"的那一端(直连边必然是选中端自己),等距或不可达时归 hostNum 较小端;
+   未选中时一律取较小端。实现是单源 BFS 而非 Floyd —— 此图无权、且只需单源最短路,效果即
+   "离选中节点最近者的视角"从选中节点沿图向外扩散。
+- 验证:服务端编译 + 起服;`/stats/config` 字段组已是 `["rtt","traffic","buffered","pcState","iceState","path"]`;
+  mesh_ws_test2.py 新增 pcState 断言、与 mesh_default_field_check.py 双双全绿(报文里 pcState 正确落位);
+  客户端 ninja 构建通过;server 已停、端口已释放。
+- 仍未做:properties 侧白名单校验、400 原因进响应体(见上节待决 2/4)。
 
 ## 下一步可选方向(按建议优先级)
 1. **LLM 网络诊断助手(AIOps)** — 基于汇聚的状态数据,自然语言查询网络状态、

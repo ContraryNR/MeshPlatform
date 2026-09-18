@@ -1,4 +1,7 @@
-package com.contrarynr.mesh;
+package com.contrarynr.mesh.statsWorker;
+import com.contrarynr.mesh.PeerRegistry;
+import com.github.msteinbeck.sig4j.signal.Signal1;
+import com.github.msteinbeck.sig4j.slot.Slot1;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ArrayNode;
@@ -7,34 +10,21 @@ import tools.jackson.databind.node.ObjectNode;
 import java.util.Map;
 import java.util.SortedMap;
 
-/*拓扑打包器 —— 把仓储交出的切面(Snapshot)打成分发给浏览器的内容。
-
-链上的位置:仓储 → 本类 → 分发器。仓储自主推流时把切面递到 deliver,本类打包后交给分发器;
-查询路径(/stats/latest)则直接用纯变换 pack —— 两条路径共用同一份打包规则,页面看到的形态永远一致。
-
-只做"呈现"这一件事:节点富化 hostName、把两端各自的观测原样落笔。取数与过滤在仓储,
-发送在分发器,本类不碰容器;更关键的是**不做任何取舍** —— 不取平均、不镜像兜底、不取最差,
-谁报的就是谁的。
-
-{ts, nodes:[{hostNum,hostName}],
- edges:[{a,b,channels:[{ch, a:{rtt,up,down,buffered,netPath,iceState,candLocal,candRemote},
-                            b:{同左}}]}]}
-同一通道的两端数据并列:up/down 是**该端自己的方向读数**(我发/我收),rtt 是该端自己测的,
-buffered 是该端自己的发送队列,iceState/候选对是该端自己选中的 —— 两端各一份,天然可与对端比对。
-某端没上报该通道、或该端字段全缺省(字段组未配置):整个 "a"/"b" 对象不出现(前端显示"—")。
-字段缺省表现为对象里不含该 key,而非 0 —— 与真 0 区分。
-裸边(仅连接数量模式)只有 a/b,无 channels,前端灰显。*/
+//切面 -> 分发给浏览器的内容:节点富化 hostName、两端观测各自原样落笔,不碰容器、不做任何取舍。
+//推流路径走"切面就绪信号 -> onSnapshot 槽"(打包后经 topologyReady 信号向上转发);
+//查询路径(/stats/latest)则由 Controller 直接调 pack() 现场取,两条路径共用同一套打包规则。
 @Component
-public class TopologyPacker {
+public class TopologyTransformer
+{
     private final PeerRegistry registry;
     private final ObjectMapper mapper;
-    private final TopologyDistributor distributor;//链上下一环:最终发送
-    public TopologyPacker(PeerRegistry registry, ObjectMapper mapper, TopologyDistributor distributor)
-    {this.registry = registry;this.mapper = mapper;this.distributor = distributor;}
-
-    //推流路径:仓储 tick 交来的切面 —— 打包后交给分发器
+    public TopologyTransformer(PeerRegistry registry, ObjectMapper mapper)
+    {this.registry = registry;this.mapper = mapper;}
+    //推流链上的槽/信号:切面进来 -> 打包 -> 发出 topologyReady(由协调者连到缓存与广播)
+    public final Slot1<EdgeSnapRepository.Snapshot> onSnapshotAccept = this::deliver;
+    public final Signal1<ObjectNode> topologyReady = new Signal1<>();
     public void deliver(EdgeSnapRepository.Snapshot snap)
-    {distributor.distribute(pack(snap));}
+    {topologyReady.emit(pack(snap));}
 
     public ObjectNode pack(EdgeSnapRepository.Snapshot snap)
     {
@@ -52,7 +42,7 @@ public class TopologyPacker {
         }
         //描述当前全部边(edgeState) —— 精确到 channel,通道内两端观测并列,不做任何取舍/汇总
         ArrayNode edges = root.putArray("edges");
-        for (Map.Entry<EdgeSnapRepository.Edge, SortedMap<Integer, Map<Integer, EdgeSnapRepository.DirSnap>>> e
+        for (Map.Entry<EdgeSnapRepository.edgeSymbol, SortedMap<Integer, Map<Integer, EdgeSnapRepository.channelSnap>>> e
                 : snap.edges().entrySet())
         {
             int a = e.getKey().a(), b = e.getKey().b();
@@ -62,7 +52,7 @@ public class TopologyPacker {
             if (e.getValue().isEmpty())
                 continue;//裸边(仅连接数量模式):只有 a/b,前端灰显
             ArrayNode chArr = edge.putArray("channels");//已按通道号升序
-            for (Map.Entry<Integer, Map<Integer, EdgeSnapRepository.DirSnap>> ce : e.getValue().entrySet())
+            for (Map.Entry<Integer, Map<Integer, EdgeSnapRepository.channelSnap>> ce : e.getValue().entrySet())
             {
                 ObjectNode cn = chArr.addObject();
                 cn.put("ch", ce.getKey());
@@ -74,8 +64,8 @@ public class TopologyPacker {
         return root;
     }
 
-    //单端观测落笔(不含 pcState:它只入库、没有展示位)
-    private static void writeSide(ObjectNode chObj, String name, EdgeSnapRepository.DirSnap s)
+    //单端观测落笔:缺省字段不写该 key(与真 0 区分)
+    private static void writeSide(ObjectNode chObj, String name, EdgeSnapRepository.channelSnap s)
     {
         if (s == null)
             return;//这一端没上报该通道:整个对象不出现,前端显示"—"
@@ -88,10 +78,12 @@ public class TopologyPacker {
             side.put("down", s.down());
         if (s.buffered() != null)
             side.put("buffered", s.buffered());
-        if (s.netPath() != null)
-            side.put("netPath", s.netPath());
+        if (s.pcState() != null)
+            side.put("pcState", s.pcState());
         if (s.iceState() != null)
             side.put("iceState", s.iceState());
+        if (s.netPath() != null)
+            side.put("netPath", s.netPath());
         if (s.candLocal() != null)
             side.put("candLocal", s.candLocal());
         if (s.candRemote() != null)

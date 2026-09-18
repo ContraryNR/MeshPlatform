@@ -27,9 +27,10 @@ public:
     //  rtt      -> rtt
     //  traffic  -> bytesSent/bytesReceived(由 dcmanager 差分出 up/down)
     //  buffered -> buffered
-    //  state    -> state(pcState)
-    //  ice      -> iceState
+    //  pcState  -> pcState(PeerConnection 连接状态)
+    //  iceState -> iceState
     //  path     -> netPath + candLocal/candRemote
+    //(字段组名与 JSON key、server 侧入库列名 pc_state/ice_state 保持一致:2026-09-17 由 state/ice 改名而来)
     QSet<QString> fields;
 
     //从 server 下发的 statsCfg 装载

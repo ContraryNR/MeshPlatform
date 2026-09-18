@@ -54,11 +54,11 @@ print(f"feeder up: desktop-a={numa} laptop-b={numb}", flush=True)
 for i in range(30):  # 30 轮 x 5s = 150s
     send_text(sa, json.dumps({"type": "stats", "target": 1, "source": numa, "edges": [
         {"peer": numb, "ch": 0, "rtt": 38 + i % 5, "up": 1200 + i * 10, "down": 800, "buffered": 0,
-         "state": "connected", "iceState": "completed", "netPath": "lan"},
+         "pcState": "connected", "iceState": "completed", "netPath": "lan"},
         {"peer": numb, "ch": 1, "rtt": 42, "up": 400000 + i * 5000, "down": 1000, "buffered": 1024 * (i % 3),
-         "state": "connected", "iceState": "completed", "netPath": "lan"}]}))
+         "pcState": "connected", "iceState": "completed", "netPath": "lan"}]}))
     send_text(sb, json.dumps({"type": "stats", "target": 1, "source": numb, "edges": [
         {"peer": numa, "ch": 0, "rtt": 41 + i % 4, "up": 800, "down": 1200, "buffered": 0,
-         "state": "connected", "iceState": "completed", "netPath": "lan"}]}))
+         "pcState": "connected", "iceState": "completed", "netPath": "lan"}]}))
     time.sleep(5)
 print("feeder done", flush=True)

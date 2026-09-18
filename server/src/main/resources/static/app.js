@@ -2,12 +2,14 @@
 // MeshPlatform 管理页 —— 订阅 SSE 拓扑推送并渲染手写 SVG 拓扑图(零第三方依赖)
 // 数据形态: {ts, nodes:[{hostNum,hostName}],
 //   edges:[{a,b,channels:[{ch,
-//      a:{rtt,up,down,buffered,netPath,iceState,candLocal,candRemote},
+//      a:{rtt,up,down,buffered,pcState,iceState,netPath,candLocal,candRemote},
 //      b:{同左}}]}]}
 // 服务端只归档与转发,不合并两端观测:同一通道两端各自的读数原样并列(up/down 是该端自己的方向读数,
 // rtt 是该端自己测的,buffered 是该端自己的发送队列)。因此页面按"选中节点"的视角展示:
 // 选中谁就只看它作为上报方的那一份(节点详情与质量表格都跟随);某端对象不存在 = 该端没报该通道。
-// 唯一不跟随选中的是拓扑那条线(一条边只有一条线,固定取 hostNum 较小端,图例里已写明)。
+// 拓扑那条线是唯一的例外(一条边只有一条线,必须挑一个视角):选中节点时,连在它上面的边显示它
+// 自己报的读数,更远的边显示"离它更近"那一端的(以选中节点为源做一次 BFS,沿图取最近者);
+// 未选中节点时一律取 hostNum 较小端。图例里已写明。
 // 裸边(客户端"仅连接数量"模式)只有 a/b,无 channels,拓扑灰显、不进质量表格。
 
 const svg = document.getElementById('topo');
@@ -25,6 +27,7 @@ const CH_NAMES = { 0: '主通道', 1: '文件传输', 2: '音频', 3: '视频' }
 const NET_PATH_NAMES = { lan: '局域网', wan: '公网', relay: '中继' };
 let topo = null;      // 最近一次快照
 let selected = null;  // 当前选中的 hostNum
+let hopDist = {};     // 选中节点到各节点的最少跳数(每次渲染前重算,不可达则无此 key)
 
 // ---------- SSE 订阅 ----------
 const source = new EventSource('/stats/stream');
@@ -55,12 +58,13 @@ function renderTopo() {
     return;
   }
   const pos = layout(topo.nodes);
+  computeHops();//先算出"选中节点到各节点的最少跳数",画线时按它挑 source(视角沿图传播)
 
   // 先画边(在下层)
   for (const edge of topo.edges) {
     const pa = pos[edge.a], pb = pos[edge.b];
     if (!pa || !pb) continue;
-    // 一条线只能有一个颜色:固定取 hostNum 较小端(a)视角的代表通道 RTT(a 端此边没数据时退到 b 端)。
+    // 一条线只能有一个颜色:取"离选中节点更近"的那一端作为 source(未选中时取 hostNum 较小端)。
     // 它只是线上那个数字与颜色,不改变任何数据 —— 分端分通道的数据在表格与详情里逐条可查。
     const v = lineView(edge);
     const rtt = v ? v.side.rtt : null;
@@ -159,6 +163,7 @@ function renderDetail() {
       card.appendChild(kv('发送 → 对端', fmtRate(s.up)));
       card.appendChild(kv('接收 ← 对端', fmtRate(s.down)));
       card.appendChild(kv('发送积压', s.buffered != null ? fmtBytes(s.buffered) : '—'));
+      card.appendChild(kv('PC 状态', s.pcState || '—'));
       card.appendChild(kv('ICE 状态', s.iceState || '—'));
       card.appendChild(kv('路径', netPathName(s.netPath)));
       // 选中候选对(诊断):路径判定依据是"对端地址是否与本机同网段",这里直接给出该端实际选中的候选
@@ -206,6 +211,7 @@ function renderTable() {
       td(fmtRate(ab)),
       td(fmtRate(ba)),
       td(s && s.buffered != null ? fmtBytes(s.buffered) : '—'),
+      td(s && s.pcState ? s.pcState : '—'),
       td(s && s.iceState ? s.iceState : '—'),
       td(netPathName(s ? s.netPath : null))
     );
@@ -331,10 +337,40 @@ function hint(text) {
   div.textContent = text;
   return div;
 }
-// 拓扑线取谁的数字:固定用 hostNum 较小端(a)视角 —— 该端在此边上的代表通道(主通道优先,否则通道号最小);
-// a 端整条边都没数据时退到 b 端,免得线假灰。它只决定线的颜色与那个数字,不改动任何数据。
+// 视角传播:以选中节点为源,在拓扑图上做一次无权 BFS(每跳 = 1 条边),得到各节点的最少跳数。
+// 这就是"沿图取最近者"的思路 —— 只是此图无权、又只需要单源最短路,一次 BFS 就够
+// (Floyd 求的是全源两两最短路的动态规划,在这个规模上属于杀鸡用牛刀)。
+function computeHops() {
+  hopDist = {};
+  if (selected == null) return;//未选中:不需要距离,线一律取 hostNum 较小端
+  hopDist[selected] = 0;
+  const queue = [selected];
+  while (queue.length) {
+    const cur = queue.shift();
+    for (const e of topo.edges) {
+      const other = e.a === cur ? e.b : (e.b === cur ? e.a : null);
+      if (other == null || hopDist[other] !== undefined) continue;//不相邻 / 已访问
+      hopDist[other] = hopDist[cur] + 1;
+      queue.push(other);
+    }
+  }
+}
+
+// 这条边的线上数字取哪一端的观测:选中节点自己 > 跳数更近的一端 > hostNum 较小端(a)。
+// 视角因此从选中节点沿图向外扩散:直连边必然显示选中端自己报的 RTT,远端边显示"离它更近"那一端的。
+function viewSideOf(edge) {
+  if (selected == null) return 'a';
+  if (selected === edge.a) return 'a';
+  if (selected === edge.b) return 'b';
+  const da = hopDist[edge.a] !== undefined ? hopDist[edge.a] : Infinity;
+  const db = hopDist[edge.b] !== undefined ? hopDist[edge.b] : Infinity;
+  return db < da ? 'b' : 'a';//等距、或两端都不可达(另一个连通分量)时归 a(hostNum 较小端)
+}
+
+// 该端在此边上没数据时退到另一端,免得线假灰。它只决定线的颜色与那个数字,不改动任何数据。
 function lineView(edge) {
-  return pickSide(edge, 'a') || pickSide(edge, 'b');
+  const key = viewSideOf(edge);
+  return pickSide(edge, key) || pickSide(edge, key === 'a' ? 'b' : 'a');
 }
 function pickSide(edge, key) {
   const chs = (edge.channels || []).filter(c => c[key]);

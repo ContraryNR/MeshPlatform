@@ -59,6 +59,12 @@
 			<artifactId>hibernate-community-dialects</artifactId>
 			<version>${hibernate.version}</version>
 		</dependency>
+		<!-- Qt 风格信号槽:stats 各 worker 之间解耦连接(对照 reportconfig.h 只此一处引入) -->
+		<dependency>
+			<groupId>com.github.msteinbeck</groupId>
+			<artifactId>sig4j</artifactId>
+			<version>1.0.1</version>
+		</dependency>
 
 		<dependency>
 			<groupId>org.projectlombok</groupId>

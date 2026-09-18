@@ -779,25 +779,25 @@ public slots://statsSlot
         }
         if(reportCfg.hasField("buffered"))
             edge["buffered"]=static_cast<qint64>(dc->bufferedAmount());
-        if(reportCfg.hasField("state"))
+        if(reportCfg.hasField("pcState"))
         {
             switch(pc->state())
             {
                 case rtc::PeerConnection::State::New:
-                 edge["state"]="new";break;
+                 edge["pcState"]="new";break;
                 case rtc::PeerConnection::State::Connecting:
-                 edge["state"]="connecting";break;
+                 edge["pcState"]="connecting";break;
                 case rtc::PeerConnection::State::Connected:
-                 edge["state"]="connected";break;
+                 edge["pcState"]="connected";break;
                 case rtc::PeerConnection::State::Disconnected:
-                 edge["state"]="disconnected";break;
+                 edge["pcState"]="disconnected";break;
                 case rtc::PeerConnection::State::Failed:
-                 edge["state"]="failed";break;
+                 edge["pcState"]="failed";break;
                 case rtc::PeerConnection::State::Closed:
-                 edge["state"]="closed";break;
+                 edge["pcState"]="closed";break;
             }
         }
-        if(reportCfg.hasField("ice"))
+        if(reportCfg.hasField("iceState"))
         {
             switch(pc->iceState())
             {

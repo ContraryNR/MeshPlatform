@@ -67,13 +67,13 @@ print(f"sim-a={numa} sim-b={numb}")
 # sim-a 上报两条通道:ch0 主通道(lan,rtt=40)+ ch1 文件通道(wan,有速率)
 stats_a = {"type": "stats", "target": 1, "source": numa, "edges": [
     {"peer": numb, "ch": 0, "rtt": 40, "up": 1000, "down": 2000, "buffered": 0,
-     "state": "connected", "iceState": "completed", "netPath": "lan"},
+     "pcState": "connected", "iceState": "completed", "netPath": "lan"},
     {"peer": numb, "ch": 1, "rtt": 60, "up": 50000, "down": 1000, "buffered": 2048,
-     "state": "connected", "iceState": "completed", "netPath": "wan"}]}
-# sim-b 反向只报 ch0(rtt=50 => 主通道平均应为 45)
+     "pcState": "connected", "iceState": "completed", "netPath": "wan"}]}
+# sim-b 反向只报 ch0(rtt=50:两端各报各的,不再取平均)
 stats_b = {"type": "stats", "target": 1, "source": numb, "edges": [
     {"peer": numa, "ch": 0, "rtt": 50, "up": 2000, "down": 1000, "buffered": 0,
-     "state": "connected", "iceState": "completed", "netPath": "lan"}]}
+     "pcState": "connected", "iceState": "completed", "netPath": "lan"}]}
 send_text(sa, json.dumps(stats_a)); send_text(sb, json.dumps(stats_b))
 time.sleep(1)
 latest = json.loads(http_get("/stats/latest"))
@@ -94,6 +94,7 @@ assert sb0["up"] == 2000 and sb0["down"] == 1000, e          # 不跨端镜像�
 assert sa0["buffered"] == 0 and sb0["buffered"] == 0, e      # 真 0 保留为 0
 assert sa0["netPath"] == "lan" and sb0["netPath"] == "lan", e
 assert sa0["iceState"] == "completed" and sb0["iceState"] == "completed", e
+assert sa0["pcState"] == "connected" and sb0["pcState"] == "connected", e  # pcState 已进拓扑
 # 只有 sim-a 报过 ch1:只出现它那一端,另一端不补空对象
 assert set(c1.keys()) == {"ch", ka}, e
 sa1 = c1[ka]
