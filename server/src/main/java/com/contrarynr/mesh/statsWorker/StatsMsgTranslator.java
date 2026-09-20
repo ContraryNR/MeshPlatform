@@ -7,8 +7,6 @@ import tools.jackson.databind.JsonNode;
 import java.util.ArrayList;
 import java.util.List;
 
-//协议翻译 worker:把信令层转来的原始 stats 报文,译成仓储认得的摄入项 List<channelSnap>。
-//只做 JSON → 摄入项 的映射(改协议只动本类),不碰容器;翻译好经 channelSnapReady 信号往下发。
 @Component
 public class StatsMsgTranslator
 {

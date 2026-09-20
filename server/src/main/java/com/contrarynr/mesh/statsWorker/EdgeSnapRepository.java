@@ -8,9 +8,9 @@ import com.github.msteinbeck.sig4j.slot.Slot1;
 import com.github.msteinbeck.sig4j.slot.Slot2;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -33,11 +33,14 @@ public class EdgeSnapRepository
     //Repository
     private final PeerStatRecordRepository recordRepo;
     private final PeerStatAggregateRepository aggregateRepo;
-    //ttlProvider:判活阈值不用自己算,全局单例 statsConfig 统一给(上报周期 × ttl-factor)
+    //config:判活需上报周期(intervalMs)作基准,周期来自全局配置;ttlFactor/TTL 属本类 —— 本仓库自管心跳与存活,判活性是它的本职
     private final statsConfig config;
+    private final int ttlFactor;
     public EdgeSnapRepository(PeerStatRecordRepository recordRepo, PeerStatAggregateRepository aggregateRepo,
-            statsConfig config)
-    {this.recordRepo = recordRepo;this.aggregateRepo = aggregateRepo;this.config = config;}
+            statsConfig config, @Value("${mesh.stats.ttl-factor:3}") int ttlFactor)
+    {this.recordRepo = recordRepo;this.aggregateRepo = aggregateRepo;this.config = config;this.ttlFactor = ttlFactor;}
+    //判活阈值 = 上报周期(来自 config) × ttl-factor(本仓库自管)
+    public long ttlMs(){return (long) config.intervalMs() * ttlFactor;}
     //上游摄入槽:协议翻译在 StatsMsgTranslator,仓库只认"摄入项 List<channelSnap>"(根本不认识 JSON)
     public final Slot2<Integer, List<channelSnap>> onWrite = this::deltaUpdate;
     public final Slot1<Integer> onRemoveNode = this::removeNode;
@@ -91,7 +94,7 @@ public class EdgeSnapRepository
     }
     private synchronized void sweep(long now)
     {
-        long ttlMs = config.ttlMs();
+        long ttlMs = ttlMs();
         if (nodeLastSeen.entrySet().removeIf(e -> now - e.getValue() > ttlMs))
             dirty = true;
         for (Iterator<Map.Entry<edgeSymbol, Map<Integer, Map<Integer, channelSnap>>>> it = edges.entrySet().iterator(); it.hasNext(); )
@@ -152,7 +155,7 @@ public class EdgeSnapRepository
     public synchronized Snapshot snapshot()
     {
         long now = System.currentTimeMillis();
-        long ttlMs = config.ttlMs();
+        long ttlMs = ttlMs();
         //onlineNodes
         List<Integer> nodes = new ArrayList<>();
         for (Map.Entry<Integer, Long> e : new TreeMap<>(nodeLastSeen).entrySet())
@@ -224,9 +227,8 @@ public class EdgeSnapRepository
         if (!rows.isEmpty())
             log.info("[Stats] 聚合窗口 {} 完成,{} 条通道", Instant.ofEpochMilli(windowStart), rows.size());
     }
-    //periodicOldRangeCleaner - sql
+    //periodicOldRangeCleaner - sql(事务归属 deleteOlderThan 所在的仓库方法,本类不再需要 @Transactional → 不被 CGLIB 代理)
     @Scheduled(cron = "0 0 * * * *")
-    @Transactional //@Modifying 删除必须包在事务里
     public void cleanup()
     {
         int removed = recordRepo.deleteOlderThan(System.currentTimeMillis() - 24 * 3600_000L);

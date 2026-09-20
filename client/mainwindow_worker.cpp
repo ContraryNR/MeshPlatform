@@ -53,7 +53,7 @@ MainWindow::MainWindow(QWidget *parent)
 }
 void MainWindow::initialSignaling()
 {
-    (dcManager = new dcmanager(inboundBuffer, mutex,onlineMode))->moveToThread(trd[DC] = new QThread);
+    (dcManager = new dcmanager(inboundBuffer, mutex, onlineMode))->moveToThread(trd[DC] = new QThread);
     ipRoute=&(dcManager->ipRoute);
     connect(dcManager, &dcmanager::workerStatePulse, this,&MainWindow::onWorkerPulse);
     connect(dcManager, &dcmanager::peerAdded, this, &MainWindow::onPeerAdded);
@@ -99,11 +99,16 @@ void MainWindow::initialSignaling()
                                               .arg(hostNum));
             getTun();
         });
-        //服务器下发的统计上报配置:一路应用到 dcmanager(权威配置),一路在状态栏留痕便于联调
-        connect(peerJsonWorker, &peerjsonworker::statsCfgReceived, dcManager, &dcmanager::applyStatsConfig);
-        connect(peerJsonWorker, &peerjsonworker::statsCfgReceived, this, [this](const QJsonObject& cfg){
-            ui->stateMsg->appendPlainText(QString("服务器下发统计上报配置: %1")
-                .arg(QString::fromUtf8(QJsonDocument(cfg).toJson(QJsonDocument::Compact))));
+        //统计上报配置链路(jsonWorker 解析 → statsScheduler 权威存储 → dcManager 应用):
+        //三个对象跨线程连接,Qt 自动 Queued,天然串行。statsScheduler 置于独立线程,承接"变更中继"。
+        (statsSchedulerWorker = new statsScheduler)->moveToThread(statsSchedulerTrd = new QThread);
+        statsSchedulerTrd->start();
+        connect(peerJsonWorker, &peerjsonworker::statsCfgParsed, statsSchedulerWorker, &statsScheduler::applyStatsCfg);
+        connect(statsSchedulerWorker, &statsScheduler::statsConfigChanged, dcManager, &dcmanager::onStatsConfig);
+        //留痕便于联调:服务器下调了上报配置
+        connect(peerJsonWorker, &peerjsonworker::statsCfgParsed, this, [this](bool enabled,int intervalMs,const QStringList& fields){
+            ui->stateMsg->appendPlainText(QString("服务器下发统计上报配置: enabled=%1 interval=%2ms fields=%3")
+                .arg(enabled).arg(intervalMs).arg(fields.join(',')));
         });
         //信令断开:立即停止统计上报(从上游停止采集,而不是靠发送点的 isValid 兜底丢弃)
         connect(clientNetWorker, &wssignalingworker::wsDisconnected, dcManager, &dcmanager::onSignalingDown);
@@ -245,6 +250,12 @@ void MainWindow::cleanUp(bool isShutDown)
                         delete thread;
                     }
                 std::memset(trd,0,sizeof(QThread*)*trdAmount);
+                if(statsSchedulerWorker&&statsSchedulerWorker->thread()){
+                    statsSchedulerWorker->thread()->quit();
+                    statsSchedulerWorker->thread()->wait();
+                    delete statsSchedulerWorker; statsSchedulerWorker=nullptr;
+                    delete statsSchedulerTrd; statsSchedulerTrd=nullptr;
+                }
                 releaseTunResource();
                 delete tunManager; tunManager = nullptr;
                 delete tunLoader; tunLoader = nullptr;

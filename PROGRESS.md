@@ -462,6 +462,85 @@
 范畴边界:所有功能服务于"让网络本身更可用/可观测/可诊断",不做通用后台管理,
 不为 AI 而 AI(如塞聊天机器人)。
 
+## 客户端卡死+崩溃调试(2026-09-20,进行中,未修复)
+现象:**界面卡住(不重绘,无 setEnable(false) 白屏)→ 随后崩溃**。触发:某 peer 对外连接数提至
+4(视频通道 index3 激活)崩溃;且**第二轮实测无需提连接数/无文件传输/无通话,仅后加 peer 刚组网
+(建 index0 主通道)即同样"卡死+崩溃"**。仅 C++ client(server 无 hs_err 日志)。
+
+已核实的事实:
+- try-catch 已加于 dcmanager.h#L262(`try{edge=worker->collectStats(fields)}catch(std::exception&)`),
+  只兜 std::exception —— 破为 SIGSEGV(访问冲突),**兜不住**,该保护无效但也可反证非采集热点。
+- 用户判断:dcmanager 跨线程同步直采 dcworker 的 pc 不是根因 —— 认同:worker 内调 pc 本就跨栈
+  进 libdatachannel 线程池,直不直采不新增线程风险。
+- "卡死不重绘→崩"是**GUI 主线程被同步阻塞**的特征(数据竞态是偶发错值/偶发崩,不会钉死界面)。
+
+9 处 `wait()` 归属盘:
+- dcworker.h L686/695/706:deCoderTrd/audioDeCoderTrd/fileContainer(调用线程阻塞式等待)。
+- dcmanager.h L119:dcFinish 收尾 lambda `trd->quit();trd->wait();delete(worker)`,跑在 DC 线程。
+- **mainwindow_audio.cpp L213-227 `cleanupAudioSessionPipeline`:GUI 线程 `invokeMethod(audioCapture,
+  "shutdown", BlockingQueuedConnection)` + `trd[AC]->wait()` + `trd[AE]->wait()`**。
+- **mainwindow_video.cpp L147-152 `cleanupVideoSessionPipeline`:GUI 线程 `invokeMethod(videoEnCoder,
+  "shutdown", BlockingQueuedConnection)` + `trd[VE]->wait()`**。
+- mainwindow_worker.cpp L249/255:全关停 cleanUp 路径(scheduler worker 线程),仅彻底关闭时触发。
+
+曾疑(未证实/难以覆盖全部现象):GUI 主线程上 AC/AE/VE 三处 BlockingQueuedConnection+wait(),
+音/视频通话挂断且 checkVeNecessity()/checkAeNecessity() 判"已无消费者"时触发 → 若编码/采集线程
+被 libdatachannel 回调或嵌套 wait 堵住未及时退 → GUI 挂死 → 再碰未停净对象崩溃。能解释"提 4 路
+视频才崩",**解释不了第二轮"纯组网即冻"** —— 该理论不作唯一根因。
+
+已排除:onPeerRemoved(mainwindow_peer.cpp L24)只做纯 UI 删行,无阻塞调用 → 后加 peer 仅 index0
+组网即冻的这条路径冻结点尚未锁定。GUI 主线程上还有更基础的阻塞点未找到。
+
+待用户提供后继续:① 卡死时用 Break All/Pause 抓**主线程调用栈**(最直接命中停在哪个 wait()/调用);
+② 二分:开两个离线 client、不提连接数、完全不发起音视频,看是否仍冻(隔离 AC/AE/VE 与否)。
+**本轮零代码改动(纯只读排查),未擅自改。**
+
+### 第三轮:代码插桩已完成,待复现(2026-09-20)
+上一轮"零代码改动"之后,用户让"试debug"。本轮静态通读全部客户端线程模型后,**否定了
+"GUI 主线程缺一个显式 wait()"这条排查主线**(纯组网路径上 GUI 无任何 wait/BlockingQueued/模态框),
+把根因方向修正为 **ipRoute/nameRoute 两个非线程安全 QHash 的跨线程并发**(读方:GUI/JW/TOUT 三线程;
+写方:DC 线程 addPeer/dcFinish 结构性增删)。QHash 扩容中途被另一线程读 = UB,可表现为
+**迭代死循环(界面不重绘)或越界 SIGSEGV**;次要候选:workerState(state 含 QList)在 libdatachannel
+回调线程写 + DC 线程 getState() 读的 COW 竞态、pc/dc shared_ptr 在 shutdown(reset)与 collectStats
+(解引用)间的 use-after-free。
+
+落地(全部带线程ID,`qWarning` 输出,验证后整段删除,入口在 util.h):
+- util.h:新增 `thr()`(当前线程ID)+ `MESH_DLOG(site)` 宏
+- dcmanager.h:addPeer 进出/insert/append、dcFinish 的 `trd->wait()` 前后、basicTimer 遍历进出
+- dcworker.h:createDc 进入、dc.onOpen(offerER/answerER)、vade 进入、shutdown 进入、collectStats 进入
+- mainwindow_peer.cpp:onPeerAdded/onPeerRemoved(带 ipRoute 规模)、updateCallButtonState(带 ipRoute 规模)
+- tunoutworker.h:startExternalSessionFlood 进出(TOUT 线程)
+
+构建通过(`cmake --build client\build` → Mesh.exe)。
+
+复现协议(等用户跑,发日志):按第二轮的触发方式(在线模式,后加 peer 刚组网即卡)复现一次,
+把控制台/DebugView 的日志拷回。判读规则:
+- 冻结点在 basicTimer 的 `dcm.basicTimer IN` 之后无 `OUT` ⇒ ipRoute 被并发写坏,DC 线程卡在遍历;
+- 冻结在 GUI 的 `GUI.updateCallButtonState ipRoute=` 之后 ⇒ GUI 线程卡在 isWorkerReady 读 ipRoute;
+- 冻结在 `dcm.dcFinish IN` 与 `after trd->wait()` 之间 ⇒ DC 线程卡在等 worker 线程退出;
+- 只见 `dcw.shutdown IN` 而无 `dcw.createDc`/`onOpen` 后续 ⇒ worker 生命周期异常;
+- 复现窗口内日志里不同线程ID交错出现在 ipRoute/nameRoute 相关行 ⇒ 坐实跨线程容器竞态。
+
+### 第四轮:hostNum 信封字段不匹配 = 真正的根因(2026-09-20 定案)
+复现并取回插桩日志(`mesh_debug.log`,两个 client 共用 build 目录所以日志是两进程交错的)后,
+**排除了 ipRoute/nameRoute 竞态、排除了 GUI 主线程 wait()**,命中的是确定性 bug:
+
+- 服务器 [SignalingWebSocketHandler#L94] 下发编号用 `jsonMsgBasePacker("distributedHostNum", null, assigned, …)`
+  —— 编号塞在 **`target`** 字段,报文没有 `hostNum` 字段;
+- 客户端 [peerjsonworker#L51-55] 却读 `msg["hostNum"].toInt()` → 恒为 **0**;
+- 于是 [basejsonworker#L33] 里 `msg["source"]=localHostNum=0`,offerER 发 offer 的 source=0;
+- h2 用 `msg["source"]` 建对端 → 把 h1 建成 host 0 → 虚拟地址 10.0.0.0,日志 `addPeer peer=0` 完全吻合;
+- host 0 又会让 `getDcWorker(peer=0)`/TUN 路由指到空/错位 worker → 此前的"组网成功即崩"同源。
+
+修复(与 newPeer 的 body.put("hostNum") 对齐):服务器给 distributedHostNum 也显式 `body.put("hostNum", assigned)`,
+客户端不改。已构建 `server\target\mesh-backend-0.0.1-SNAPSHOT.jar`,用户重测**组网无异常**。
+
+探针已全部清理(util.h 的 thr()/MESH_DLOG、dcmanager/dcworker/mainwindow_peer/tunoutworker 的 MESH_DLOG、
+main.cpp 的 meshLogHandler 落盘),客户端重建通过、mesh_debug.log 已删。
+
+**教训**:跨语言字段契约靠约定极易漂移 —— 两端收发同一消息时,字段名/来源(该塞 target 还是 body)必须
+逐条核对;后续建议给协议字段做一处可追溯的清单(见下步开发方向)。
+
 ## 环境
 - Qt 6.11.2: D:\ProFile\Qt(6.11.2\mingw_64, Tools/mingw1310_64, Tools/CMake_64)
 - JDK 26: C:\Users\contr\.jdks\openjdk-26.0.2.1

@@ -70,6 +70,7 @@ qt_add_executable(Mesh
     tunloader.h
     tunmanager.h
     dcmanager.h
+    statsscheduler.h
     wssignalingworker.h
     tuninworker.h
     tunoutworker.h

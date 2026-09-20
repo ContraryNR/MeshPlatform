@@ -78,7 +78,7 @@ P2P 组网平台,控制面/数据面分离架构:
   只做映射不碰容器,翻译好经 channelSnapReady 信号下发(仓储根本不认识 JSON)
 - server/.../statsWorker/statsConfig.java — 下发给客户端的统计上报配置(开关/周期/字段组)的唯一载体,
   与 C++ 端 reportconfig.h 成员严格一一对应;带状态的可变 bean(set() 整体替换引用,读取方拿到自洽配置),
-  只装"会下发、能左右客户端行为"的字段(enabled/intervalMs/fields),另含全局判活阈值 ttlMs = 周期 × ttl-factor
+  只装"会下发、能左右客户端行为"的字段(enabled/intervalMs/fields);判活类(ttlFactor/TTL)不在这,归仓库自管
   ALLOWED_FIELDS(合法字段组白名单)与 parseFields(文本→集合)也在这 —— 后者只服务 application.properties 那条路
   (HTTP 请求体已是 JSON 数组)。**ALLOWED_FIELDS 顺序就是管理页复选框渲染顺序**,故必须是有序不可变集合
   (Set.of 会随 JVM 随机盐乱序)。字段组固定 6 个,名字在报文 JSON key / 摄入项分量 / 入库列名四处一致:
@@ -89,20 +89,20 @@ P2P 组网平台,控制面/数据面分离架构:
   ③ tick 1s。切面就绪不直接推下游 —— 发 snapshotReady 信号,由协调者连到打包链(仓库不认识下游)。
   **不做任何两端归一/取舍**:snapshot 交出"通道 → 上报方 hostNum → 该端原样观测"的并列结构;
   channelSnap 是摄入项(不可变,hasAnyAttr 判裸边);边身份 edgeSymbol(a,b) 构造即 a<b 规范化。
-  判活阈值从全局单例 statsConfig.ttlMs() 取(不重复计算)
+  判活阈值 ttlMs = 上报周期(来自 statsConfig) × ttl-factor(本类自管,`@Value mesh.stats.ttl-factor`)
 - server/.../statsWorker/TopologyTransformer.java — 切面 → 分发给浏览器的内容(原 TopologyPacker):节点富化 hostName、
   两端观测各自原样落笔,不碰容器、不做取舍。onSnapshotAccept 槽接收切面 → 打包 → topologyReady 信号发出;
   /stats/latest 用纯变换 pack 现场取。形状:{ts, nodes:[{hostNum,hostName}],
   edges:[{a,b,channels:[{ch, a:{...}, b:{...}}]}]};up/down 是该端自己的方向读数(A.up ≡ B.down);
   字段缺省即 null(key 缺失);只到 channel,无跨通道汇总;裸边只有 a/b
-- server/.../statsWorker/TopologyBuffer.java — 拓扑负载出口(原 TopologyDistributor):经 onTopologyAccept 槽留住最近一份
-  负载供新页面接入时立即出图(sendLatest);广播动作在 SsePushService
+- server/.../statsWorker/TopologyBuffer.java — 拓扑负载的"纯缓存 + 薄壳"(原 TopologyDistributor):只经 onTopologyAccept 槽
+  暂存最近一份打包后的字符串,暴露纯读 latest();**不做任何广播/SSE 逻辑**,要用的类构造器注入后自行读取
 - server/.../statsWorker/SsePushService.java — SSE 传输层:管"一批 SseEmitter 的连接与广播机制",
   失效连接兜 IOException/IllegalStateException;经 onTopologyAccept 信号槽广播 EVENT=topology
 - server/.../statsWorker/StatsController.java + signaling 层 — /stats/latest|history|stream|config
   (GET 查配置 + POST 调整并重下发;POST 请求体是 JSON `{enabled,interval,fields[]}` —— fields 缺省=保持原值、
   空数组=裸边)。/stats/latest 走 transformer.pack(repo.snapshot()) 现场取(查询要"此刻",不是最近一次推流);
-  /stats/stream 接入用 buffer.sendLatest() 补一份最近负载;改配置编排:statsConfig.set() →
+  /stats/stream 接入读 buffer.latest() 后再经 ssePush.send 补发一份最近负载(缓存只被读,发送归 SSE 层);改配置编排:statsConfig.set() →
   signalingHandler.broadcastStatsCfg()(信令层只负责包"信封" jsonMsgBasePacker + 下发,内容由 statsConfig 打包)
 - server/.../entity/ + repository/ — PeerStatRecord(明细,保留 24h)/PeerStatAggregate(分钟聚合)
 - server/src/main/resources/static/ — 管理页(手写 SVG 拓扑,零依赖),http://localhost:8080/

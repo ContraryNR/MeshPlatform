@@ -5,6 +5,7 @@ import com.contrarynr.mesh.entity.PeerStatRecord;
 public final class statsTool
 {
     private statsTool(){}
+    //RepositorySnapShot -> sqlRepositoryFormat
     public static PeerStatRecord toRecord(int source, EdgeSnapRepository.channelSnap s)
     {
         return new PeerStatRecord(source, s.peer(), s.ch(), s.rtt(), s.up(), s.down(),

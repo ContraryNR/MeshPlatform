@@ -4,8 +4,6 @@ import com.github.msteinbeck.sig4j.Type;
 import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Component;
 
-//stats 域的"统领全部信息流转链路"的独立类(类比客户端 MainWindow):本身**不处理任何数据**,只做中转/接线。
-//全部 worker 通过"信号 → 槽"互连,连线统一下在本类;谁触发谁、触发后往哪流,只看 wire() 一处。
 @Component
 public class StatsCoordinator
 {
@@ -19,7 +17,6 @@ public class StatsCoordinator
             EdgeSnapRepository repo, TopologyTransformer transformer, TopologyBuffer buffer, SsePushService ssePush)
     {this.signalingHandler = signalingHandler;this.translator = translator;this.repo = repo;
         this.transformer = transformer;this.buffer = buffer;this.ssePush = ssePush;}
-    //全部用直连同步,与 Qt 的 DirectConnection 对应:触发方同线程顺序执行。本类只 connect,不发信号、不加工数据。
     @PostConstruct
     void wire()
     {
@@ -27,6 +24,8 @@ public class StatsCoordinator
         signalingHandler.statsMsgReceived.connect(translator.onRawStats, Type.DIRECT);
         translator.channelSnapReady.connect(repo.onWrite, Type.DIRECT);
         signalingHandler.peerDisconnected.connect(repo.onRemoveNode, Type.DIRECT);
+            //这里`收信处`-Coor中继->`仓库`
+                //绕过了预期的`信息处理层`(原本预期大致叫`msgHandler`,Agent实际命名为`translator`) 但是问题不大
         //切面就绪 → 打包 → 缓存 + 广播
         repo.snapshotReady.connect(transformer.onSnapshotAccept, Type.DIRECT);
         transformer.topologyReady.connect(buffer.onTopologyAccept, Type.DIRECT);

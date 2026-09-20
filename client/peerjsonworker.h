@@ -3,6 +3,8 @@
 
 #include "basejsonworker.h"
 #include <QJsonArray>
+#include <QJsonValue>
+#include <QStringList>
 #include <QDebug>
 
 class peerjsonworker : public basejsonworker
@@ -10,8 +12,10 @@ class peerjsonworker : public basejsonworker
     Q_OBJECT
 public:
     QHash<int,QString>& nameRoute;
-    peerjsonworker(QString& localhostname,int& localhostnum,QHash<int,QString>& nameRouteFromDcManager,bool onlineRunning,void* voidIpRoute)
-        :basejsonworker(localhostname,localhostnum,onlineRunning,voidIpRoute),nameRoute(nameRouteFromDcManager){}
+    peerjsonworker(QString& localhostname,int& localhostnum,QHash<int,QString>& nameRouteFromDcManager,
+                   bool onlineRunning,void* voidIpRoute)
+        :basejsonworker(localhostname,localhostnum,onlineRunning,voidIpRoute),
+         nameRoute(nameRouteFromDcManager){}
 
 public slots:
     void onInternalMsg(const QJsonObject& msg)
@@ -65,9 +69,17 @@ public slots:
         }
         else if(type=="candidate")
             emit goSetCandidate(msg["candidateItem"].toString(),msg["candidateMid"].toString(),msg["source"].toInt(),msg["index"].toInt());
-        //服务器下发的统计上报配置(server 为唯一配置源:注册时下发一次,运行时改配置后再下发)
+        //服务器下发 statsCfg:jsonWorker 只做解析(先拆成员再逐字段发语义化信号,不透传整包)
+        //enabled/intervalMs/fields 交给 statsScheduler(独立线程)作为权威配置存储与中继
         else if(type=="statsCfg")
-            emit statsCfgReceived(msg);//整包透传:开关/周期/通道/字段全部以 server 为准
+        {
+            bool en=msg.value("enabled").toBool(false);
+            int iv=msg.value("interval").toInt(5000);
+            QStringList flds;
+            for(const QJsonValue& v : msg.value("fields").toArray())
+                flds<<v.toString();
+            emit statsCfgParsed(en,iv,flds);
+        }
     }
 signals:
     void sendToNetWorker(const QJsonObject&);
@@ -76,7 +88,7 @@ signals:
     void goSetAnswer(const QString& sdp,int peerHostNum,int);
     void goSetCandidate(const QString&,const QString&,int,int);
     void hostNumAssigned(int);
-    void statsCfgReceived(const QJsonObject& cfg);//服务器下发的统计上报配置(整包:开关/周期/通道/字段)
+    void statsCfgParsed(bool enabled,int intervalMs,const QStringList& fields);//解析后的统计上报配置(开关/周期/字段组)
 };
 
 #endif // PEERJSONWORKER_H

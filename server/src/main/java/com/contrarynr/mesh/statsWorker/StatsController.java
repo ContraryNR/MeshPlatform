@@ -61,7 +61,10 @@ public class StatsController
     public SseEmitter stream()
     {
         SseEmitter emitter = ssePush.register();
-        buffer.sendLatest(emitter);//发生绑定(返回)前会作为Emitter`待办`(暂存内部队列)
+        //向新页面补发一份缓存里的最近快照(若有);发送由 SSE 层负责,缓存只被读取
+        String latest = buffer.latest();
+        if (latest != null)
+            ssePush.send(emitter, SsePushService.EVENT, latest);
         return emitter;//返回时Spring注意到返回类型为`SseEmitter`
                             //且返回值满足`未绑定过`的前提->绑定到Sse长连接Session
     }
@@ -73,7 +76,7 @@ public class StatsController
         cfg.put("enabled", config.enabled());
         cfg.put("interval", config.intervalMs());
         cfg.put("fields", config.fields());
-        cfg.put("ttl", config.ttlMs());
+        cfg.put("ttl", repo.ttlMs());
         cfg.put("allowedFields", statsConfig.ALLOWED_FIELDS);
         return cfg;
     }

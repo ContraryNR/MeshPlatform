@@ -42,6 +42,7 @@
 #include "audioencoder.h"
 #include "audiodecoder.h"
 #include "netconfig.h"
+#include "statsscheduler.h"
 #include <QTime>
 #include "topbasedialog.h"
 #include "sessionbasedialog.h"
@@ -86,6 +87,7 @@ public://QThreadWorker
     wssignalingworker* clientNetWorker{NULL};
     peerjsonworker* peerJsonWorker{NULL};
     dcmanager* dcManager{NULL};
+    statsScheduler* statsSchedulerWorker{nullptr};//统计上报配置权威存储与中继(独立线程)
     tuninworker* tunInWorker{NULL};
     tunoutworker* tunOutWorker{NULL};
     videoencoder* videoEnCoder{nullptr};
@@ -93,6 +95,7 @@ public://QThreadWorker
     audioencoder*  audioEnCoder{nullptr};
 public://ResourceContainer
     QThread* trd[8]{nullptr};
+    QThread* statsSchedulerTrd{nullptr};//statsScheduler 独立线程(trd[8] 槽位已满,单独第 9 个线程)
     QHash<filesender*,QThread*> fileSenderContanier;
     QHash<int, QString> peerNames;
     QHash<int, QStringList> peerChatHistory;

@@ -91,7 +91,10 @@ public class SignalingWebSocketHandler extends TextWebSocketHandler
         int assigned = registry.register(hostName);
         //Map<hostNum/session>
         numToSession.put(assigned, session);
-        sendJson(session, jsonMsgBasePacker("distributedHostNum", null, assigned, mapper.createObjectNode()));
+        //client 端 peerjsonworker.onExternalMsg 以 msg["hostNum"] 解析,须与 newPeer 一致放在 body,不能只塞 target
+        ObjectNode hostNumBody = mapper.createObjectNode();
+        hostNumBody.put("hostNum", assigned);
+        sendJson(session, jsonMsgBasePacker("distributedHostNum", null, assigned, hostNumBody));
         for (Map.Entry<Integer, WebSocketSession> e : numToSession.entrySet())
         {
             if (e.getKey() == assigned || !e.getValue().isOpen())

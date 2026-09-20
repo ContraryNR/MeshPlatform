@@ -19,7 +19,7 @@
 #include "videodecoder.h"
 #include "audiodecoder.h"
 #include "util.h"//netPath 网段判定(isInLocalSubnet)
-#include "reportconfig.h"//统计上报配置(server 下发)
+#include <QSet>//本次采集字段组(cfg. 相关判定改用 fields 参数)
 
 //全局类型标识(统一用于: 二进制消息协议首字节 / worker索引 / purpose参数 / 协商子类型)
 #define TYPE_NEGOTIATE  0   //协商(文件/音频/视频请求与响应)
@@ -57,7 +57,7 @@ public://Flags
     bool isOfferER,remoteDescSet{false};int peerHostNum,index;
     std::chrono::time_point<std::chrono::steady_clock> lastUpdateTime;
     qint64 lastStatsMs{0};//上次统计采集时刻(steady_clock毫秒),用于计算真实采集周期elapsed
-    reportconfig reportCfg;//本通道的上报配置(server 下发,由 dcmanager 经 QueuedConnection 投递)
+    //上报配置不再按 worker 各自持有实例:由 dcManager 在 collectStats 时传入本次要采集的字段组
     int audioCallSampleRate{0};
     int audioCallChannelCount{0};
     QVector<QPair<QString,QString>> pendingCandidates;
@@ -75,7 +75,7 @@ public://Sources
 public://QTimer
     QTimer* sendTimer{NULL},*detectTimer{NULL};
     QTimer* processPendingTimer{NULL};
-    QTimer* statsTimer{NULL};//统计自报定时器:由 dcmanager 经 applyReportConfig 按服务器下发的配置创建/启停
+    //统计自报定时器已移除:采集收敛到 dcManager 的 statsTimer 同步直采本类的 collectStats
 
 public://Buffer
     QMutex* inboundBufferMutex{NULL};
@@ -751,35 +751,34 @@ public slots://settingSlot
     freeSize = fSize;}
 
 public slots://statsSlot
-    //pc+dc状态包装到Json->statsCollected信号(本worker线程内的statsTimer直调,无跨线程调用)
-    //产出内容完全由 reportCfg 决定:fields 为空即裸边,只报 {peer,ch}
+    //将 pc+dc 状态包装为 Json 边,由 dcManager 的 statsTimer 直接同步调用(跨线程直调,
+    //本次要采集的字段组由 dcManager 通过 fields 参数传入;enabled 已由调用方 statsTimer 起停掌控,
+    //能调到本函数即代表上报开启)。产出内容完全由 fields 决定:fields 为空即裸边,只报 {peer,ch}。
     //缺省语义:未配置的字段组根本不写这个 key,由 server 依"所有质量字段皆缺省"判定裸边
-    QJsonObject collectStats()
+    QJsonObject collectStats(const QSet<QString>& fields)
     {
         if(isShuttingDown||!pc||!dc)
             return {};
-        if(!reportCfg.enabled)
-            return {};//未下发配置(或已被 server 关闭):不产生任何数据
         QJsonObject edge;
         edge["peer"]=peerHostNum;
         edge["ch"]=index;//worker index:0主通道/1文件/2音频/3视频
-        if(reportCfg.bare())
+        if(fields.isEmpty())
             return edge;//裸边:只表达拓扑存在性
         qint64 nowMs=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
         if(lastStatsMs>0)
             edge["elapsed"]=nowMs-lastStatsMs;//真实采集周期(ms):供manager差分速率,不依赖定时器名义间隔
         lastStatsMs=nowMs;
-        if(reportCfg.hasField("rtt"))
+        if(fields.contains("rtt"))
             if(auto rtt=pc->rtt())
                 edge["rtt"]=static_cast<int>(rtt->count());
-        if(reportCfg.hasField("traffic"))
+        if(fields.contains("traffic"))
         {
             edge["bytesSent"]=static_cast<qint64>(pc->bytesSent());
             edge["bytesReceived"]=static_cast<qint64>(pc->bytesReceived());
         }
-        if(reportCfg.hasField("buffered"))
+        if(fields.contains("buffered"))
             edge["buffered"]=static_cast<qint64>(dc->bufferedAmount());
-        if(reportCfg.hasField("pcState"))
+        if(fields.contains("pcState"))
         {
             switch(pc->state())
             {
@@ -797,7 +796,7 @@ public slots://statsSlot
                  edge["pcState"]="closed";break;
             }
         }
-        if(reportCfg.hasField("iceState"))
+        if(fields.contains("iceState"))
         {
             switch(pc->iceState())
             {
@@ -810,7 +809,7 @@ public slots://statsSlot
                 case rtc::PeerConnection::IceState::Closed: edge["iceState"]="closed";break;
             }
         }
-        if(reportCfg.hasField("path"))
+        if(fields.contains("path"))
         {
             //链路层级判定:以"对端候选地址是否落在本机网卡网段"为准,而非候选类型
             //(单看类型会误判:同机或同网段互通一旦选中 srflx 候选,类型就不是 host,可实际根本没走公网)
@@ -855,35 +854,10 @@ public slots://statsSlot
         return QString("%1:%2/%3").arg(addr.isEmpty()?QString("?"):addr)
                                  .arg(port?QString::number(*port):QString("?")).arg(type);
     }
-    //应用 server 下发的上报配置(由 dcmanager 经 QueuedConnection 投递,在本线程创建/启停statsTimer)
-    //开关、周期、字段全部来自配置 —— 客户端不提供本地调控入口,保证同一 edge 两端口径一致
-    void applyReportConfig(const QJsonObject& cfg)
-    {
-        reportCfg.load(cfg);
-        if(!reportCfg.enabled)
-        {
-            if(statsTimer)
-            {
-                statsTimer->stop();
-                lastStatsMs=0;//停报后重新开启时首条无elapsed,重建速率基线
-            }
-            return;
-        }
-        if(!statsTimer)
-        {
-            statsTimer=new QTimer(this);
-            connect(statsTimer,&QTimer::timeout,this,[this](){
-                QJsonObject edge=collectStats();
-                if(!edge.isEmpty())
-                    emit statsCollected(edge);
-            });
-        }
-        statsTimer->setInterval(reportCfg.intervalMs);
-        statsTimer->start();
-    }
+    //应用配置/自报定时器均随"采集收敛到 dcManager"一并移除:worker 不再持有上报配置副本,
+    //其 statsCollected 信号与 statsTimer 一并废弃。上报所需字段组由 dcManager 直调 collectStats(fields)传入。
 signals:
     void dcFinish();
-    void statsCollected(const QJsonObject&);//本worker的统计快照(推模型:worker自采自报,dcmanager聚合)
     void receiveStringMsg(int peerHostNum, const QString& msg);
     void informFileDownLoadFinish(const QString& filename,int peerHostNum);
     void transferDecodedFrame(const QImage&,int);
